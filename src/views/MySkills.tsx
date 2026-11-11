@@ -20,6 +20,7 @@ import {
   Circle,
   FolderTree,
   Pencil,
+  Link2,
   Share2,
   Tag,
   Trash2,
@@ -44,6 +45,10 @@ import { BatchSyncAgentDialog } from "../components/BatchSyncAgentDialog";
 import { SyncDots } from "../components/SyncDots";
 import { ToggleSwitch } from "../components/ToggleSwitch";
 import { CardActionMenu } from "../components/CardActionMenu";
+import { RenameSkillDialog } from "../components/RenameSkillDialog";
+import { LinkDuplicatesDialog } from "../components/LinkDuplicatesDialog";
+import { lineageDuplicateKey, loadDismissedLineage, saveDismissedLineage } from "../lib/skillLineage";
+import { StatusBanner } from "../components/StatusBanner";
 import * as api from "../lib/tauri";
 import { getTagActiveColor, getTagColor, pruneStaleTagFilters, UNTAGGED_FILTER } from "../lib/skillTags";
 import type {
@@ -166,6 +171,10 @@ type SkillListRow =
   | { kind: "group"; section: SkillBundleSection<ManagedSkill>; expanded: boolean; showHeader: boolean }
   | { kind: "skill"; skill: ManagedSkill };
 
+function folderOf(skill: ManagedSkill): string {
+  return skill.central_path.split(/[\\/]/).filter(Boolean).pop() ?? skill.name;
+}
+
 export function MySkills() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -218,6 +227,10 @@ export function MySkills() {
   const [togglingTarget, setTogglingTarget] = useState<{ skillId: string; tool: string } | null>(null);
   const [menuSkillId, setMenuSkillId] = useState<string | null>(null);
   const [skillToDelete, setSkillToDelete] = useState<ManagedSkill | null>(null);
+  const [skillToRename, setSkillToRename] = useState<ManagedSkill | null>(null);
+  const [lineageDuplicates, setLineageDuplicates] = useState<api.LineageDuplicate[]>([]);
+  const [dismissedLineage, setDismissedLineage] = useState<Set<string>>(loadDismissedLineage);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
 
   const [presetSkillOrder, setPresetSkillOrder] = useState<string[]>([]);
 
@@ -601,6 +614,98 @@ export function MySkills() {
     },
     [selectedSkill, closeSkillDetail, t, scheduleRefreshAfterDelete]
   );
+
+  // Imported skills that a source-backed install duplicated. Recomputed from
+  // the database whenever the library changes; it is a cheap query.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .findLineageDuplicates()
+      .then((found) => {
+        if (!cancelled) setLineageDuplicates(found);
+      })
+      .catch(() => {
+        if (!cancelled) setLineageDuplicates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [skills]);
+
+  const visibleLineageDuplicates = useMemo(
+    () => lineageDuplicates.filter((d) => !dismissedLineage.has(lineageDuplicateKey(d))),
+    [lineageDuplicates, dismissedLineage]
+  );
+
+  useEffect(() => {
+    if (linkDialogOpen && visibleLineageDuplicates.length === 0) setLinkDialogOpen(false);
+  }, [linkDialogOpen, visibleLineageDuplicates.length]);
+
+  // The install page links here when an install duplicated an imported skill.
+  const openLineageRequested =
+    (location.state as { openLineage?: boolean } | null)?.openLineage === true;
+  useEffect(() => {
+    if (openLineageRequested && visibleLineageDuplicates.length > 0) {
+      setLinkDialogOpen(true);
+      // Keep `?preset=`: it is what scopes the Library view.
+      navigate(
+        { pathname: location.pathname, search: location.search },
+        { replace: true, state: null }
+      );
+    }
+  }, [
+    openLineageRequested,
+    visibleLineageDuplicates.length,
+    navigate,
+    location.pathname,
+    location.search,
+  ]);
+
+  const handleDismissLineage = (duplicate: api.LineageDuplicate) => {
+    setDismissedLineage((prev) => {
+      const next = new Set(prev);
+      next.add(lineageDuplicateKey(duplicate));
+      saveDismissedLineage(next);
+      return next;
+    });
+  };
+
+  const handleLinkLineage = async (duplicate: api.LineageDuplicate) => {
+    try {
+      const result = await api.mergeSkillLineage(duplicate.keep.id, duplicate.source.id);
+      if (selectedSkill?.id === duplicate.source.id) closeSkillDetail();
+      if (result.previous_content_path) {
+        toast.success(t("mySkills.lineage.linkedReplaced", { name: result.name }), {
+          description: result.previous_content_path,
+        });
+      } else {
+        toast.success(t("mySkills.lineage.linked", { name: result.name }));
+      }
+      await Promise.all([refreshManagedSkills(), refreshPresets()]);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t("common.error")));
+      throw error;
+    }
+  };
+
+  const handleRenameSkill = async (newFolder: string) => {
+    const skill = skillToRename;
+    if (!skill) return;
+    try {
+      const result = await api.renameManagedSkill(skill.id, newFolder);
+      if (result.redeploy_failures.length > 0) {
+        toast.warning(t("mySkills.rename.partial", { count: result.redeploy_failures.length }), {
+          description: result.redeploy_failures.join("\n"),
+        });
+      } else {
+        toast.success(t("mySkills.rename.done", { folder: result.folder }));
+      }
+      await refreshManagedSkills();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, t("common.error")));
+      throw error;
+    }
+  };
 
   const handleBatchDelete = async () => {
     const ids = Array.from(selectedIds);
@@ -1313,6 +1418,19 @@ export function MySkills() {
         )}
       </div>
 
+      {visibleLineageDuplicates.length > 0 && (
+        <div className="mb-3">
+          <StatusBanner
+            compact
+            title={t("mySkills.lineage.bannerTitle", { count: visibleLineageDuplicates.length })}
+            description={t("mySkills.lineage.bannerDescription")}
+            actionLabel={t("mySkills.lineage.review")}
+            onAction={() => setLinkDialogOpen(true)}
+            actionIcon={<Link2 className="h-3.5 w-3.5" />}
+          />
+        </div>
+      )}
+
       <div className="app-toolbar">
         <div className="flex flex-1 items-center gap-3">
           <div className="relative w-full min-w-[200px] max-w-[280px]">
@@ -1802,6 +1920,12 @@ export function MySkills() {
                                 }]
                               : []),
                             {
+                              key: "rename",
+                              label: t("mySkills.rename.action"),
+                              icon: <Pencil className="h-3.5 w-3.5" />,
+                              onSelect: () => setSkillToRename(skill),
+                            },
+                            {
                               key: "delete",
                               label: t("common.delete"),
                               icon: <Trash2 className="h-3.5 w-3.5" />,
@@ -2039,6 +2163,12 @@ export function MySkills() {
                             }]
                           : []),
                         {
+                          key: "rename",
+                          label: t("mySkills.rename.action"),
+                          icon: <Pencil className="h-3.5 w-3.5" />,
+                          onSelect: () => setSkillToRename(skill),
+                        },
+                        {
                           key: "delete",
                           label: t("common.delete"),
                           icon: <Trash2 className="h-3.5 w-3.5" />,
@@ -2135,6 +2265,19 @@ export function MySkills() {
         message={t("mySkills.tags.deleteConfirm", { tag: tagToDelete || "" })}
         onClose={() => setTagToDelete(null)}
         onConfirm={handleDeleteTag}
+      />
+      <RenameSkillDialog
+        open={skillToRename !== null}
+        currentFolder={skillToRename ? folderOf(skillToRename) : ""}
+        onClose={() => setSkillToRename(null)}
+        onRename={handleRenameSkill}
+      />
+      <LinkDuplicatesDialog
+        open={linkDialogOpen}
+        duplicates={visibleLineageDuplicates}
+        onClose={() => setLinkDialogOpen(false)}
+        onLink={handleLinkLineage}
+        onDismiss={handleDismissLineage}
       />
       <TagRenameDialog
         open={tagToRename !== null}

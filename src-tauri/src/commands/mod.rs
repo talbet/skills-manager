@@ -5,6 +5,7 @@ pub mod projects;
 pub mod scan;
 pub mod presets;
 pub mod settings;
+pub mod skill_lineage;
 pub mod skills;
 pub mod sync;
 pub mod tools;

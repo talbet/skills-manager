@@ -6,6 +6,8 @@ interface StatusBannerProps {
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
+  /** Defaults to a refresh icon, the banner's original use. */
+  actionIcon?: React.ReactNode;
   tone?: "warning" | "danger";
   compact?: boolean;
 }
@@ -15,6 +17,7 @@ export function StatusBanner({
   description,
   actionLabel,
   onAction,
+  actionIcon,
   tone = "warning",
   compact = false,
 }: StatusBannerProps) {
@@ -52,7 +55,7 @@ export function StatusBanner({
             onClick={onAction}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-black/10 bg-black/10 dark:border-white/10 px-3 py-1.5 text-[13px] font-medium text-primary transition-colors hover:bg-black/20"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
+            {actionIcon ?? <RefreshCw className="h-3.5 w-3.5" />}
             {actionLabel}
           </button>
         ) : null}

@@ -493,7 +493,37 @@
     "tagFilterEnableAll": "Enable all ({{count}})",
     "tagFilterDisableAll": "Disable all ({{count}})",
     "tagFilterEnableAllHint": "Add the {{count}} shown skills that are off to {{preset}}",
-    "tagFilterDisableAllHint": "Remove the {{count}} shown skills from {{preset}}"
+    "tagFilterDisableAllHint": "Remove the {{count}} shown skills from {{preset}}",
+    "rename": {
+      "action": "Rename folder",
+      "title": "Rename skill folder",
+      "folderLabel": "Folder name",
+      "hint": "Renames the folder in your library and in every agent this skill is deployed to. The skill's title comes from its SKILL.md and is not changed.",
+      "invalid": "A folder name cannot contain / \\ : * ? \" < > | or start with a dot.",
+      "confirm": "Rename",
+      "done": "Renamed to {{folder}}",
+      "partial_one": "Renamed, but {{count}} deployment could not be moved. It will be redeployed under the new name on the next sync.",
+      "partial_other": "Renamed, but {{count}} deployments could not be moved. They will be redeployed under the new name on the next sync."
+    },
+    "lineage": {
+      "bannerTitle_one": "{{count}} imported skill matches a skill installed from a source",
+      "bannerTitle_other": "{{count}} imported skills match skills installed from a source",
+      "bannerDescription": "Imported skills have no source, so they never get updates. Link each one to its source to keep a single copy that can be updated.",
+      "review": "Review",
+      "title": "Link imported skills to their source",
+      "intro": "Linking keeps the imported skill, with its folder name, tags, presets and agent deployments, gives it the source so it gets update checks, and removes the duplicate copy.",
+      "none": "Nothing left to link.",
+      "kind": {
+        "import": "Imported",
+        "local": "Local"
+      },
+      "identical": "Same content as {{folder}}. Nothing in the skill changes.",
+      "differs": "Content differs from {{folder}}. The source version replaces it, and your current copy is moved to kept-copies/merged in the library.",
+      "dismiss": "Not the same skill",
+      "link": "Link",
+      "linked": "{{name}} is now linked to its source",
+      "linkedReplaced": "{{name}} is now linked to its source. Your previous copy was moved to:"
+    }
   },
   "install": {
     "title": "Install Skills",
@@ -540,7 +570,9 @@
       "done": "Done",
       "cancelled": "Installation cancelled",
       "timeout": "Installation timed out — check your network",
-      "view": "View"
+      "view": "View",
+      "lineageMatch_one": "You already had {{name}} imported. Link it to this source to keep one copy that gets updates.",
+      "lineageMatch_other": "{{count}} installed skills match skills you had imported, such as {{name}}. Link them to keep one copy of each that gets updates."
     },
     "local": {
       "title": "Import a local skill source",
