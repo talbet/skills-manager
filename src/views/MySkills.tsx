@@ -21,8 +21,6 @@ import {
   GripVertical,
   CircleSlash,
   Circle,
-  ChevronDown,
-  ChevronRight,
   FolderTree,
   Pencil,
   Share2,
@@ -57,10 +55,15 @@ import type {
 import { getErrorMessage } from "../lib/error";
 import { normalizeSkillSearch, skillSearchMatches } from "../lib/skillSearch";
 import {
+  buildBundleIndex,
   buildSourceGroups,
   getSkillSourceInfo,
-  type SkillSourceGroup,
+  groupIntoBundles,
+  UNGROUPED_KEY,
+  type SkillBundleSection,
 } from "../lib/skillSource";
+import { SkillAvatar } from "../components/SkillAvatar";
+import { SkillGroupHeader } from "../components/SkillGroupHeader";
 import {
   DndContext,
   closestCenter,
@@ -144,11 +147,11 @@ function centralDirName(skill: ManagedSkill) {
 }
 
 /**
- * One row of the list: either a source header or a skill. Keeping them in one
+ * One row of the list: either a bundle header or a skill. Keeping them in one
  * array lets the grouped and ungrouped views share the same render path.
  */
 type SkillListRow =
-  | { kind: "group"; group: SkillSourceGroup; expanded: boolean }
+  | { kind: "group"; section: SkillBundleSection<ManagedSkill>; expanded: boolean; showHeader: boolean }
   | { kind: "skill"; skill: ManagedSkill };
 
 export function MySkills() {
@@ -168,13 +171,11 @@ export function MySkills() {
     refreshProjects,
   } = useApp();
   const [viewMode, setViewMode, groupBySource, setGroupBySource] = useSkillViewMode();
-  // Grouping is a view preference, so it persists; which groups are open is
-  // session state, because a group the user expanded once is not a statement
-  // about the next launch.
-  // Explicit open/closed choice per source. A source the user never touched
-  // keeps its default: a group of one starts open, since collapsing it by
-  // default would hide the only skill it holds without saving a row.
+  // Grouping is a view preference, so it persists; which groups are folded is
+  // session state, because a group the user folded once is not a statement
+  // about the next launch. Groups start open.
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
+  const [togglingGroupKey, setTogglingGroupKey] = useState<string | null>(null);
   const [sourceSelection, setSourceSelection] = useState<Set<string>>(new Set());
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [filterMode, setFilterMode] = useState<"all" | "enabled" | "available">("all");
@@ -313,7 +314,7 @@ export function MySkills() {
     return displayNames;
   }, [skills]);
 
-  const { filtered, sourceCandidates, preSelectionSourceGroups } = useMemo(() => {
+  const { filtered, sourceCandidates } = useMemo(() => {
     const query = normalizeSkillSearch(search);
     const result = skills.filter((skill) => {
       const displayName = skillDisplayNames.get(skill.id) || skill.name;
@@ -366,51 +367,39 @@ export function MySkills() {
     const candidates = groups.map(({ key, label, count }) => ({ key, label, count }));
 
     if (sourceSelection.size === 0) {
-      return { filtered: result, sourceCandidates: candidates, preSelectionSourceGroups: groups };
+      return { filtered: result, sourceCandidates: candidates };
     }
 
     return {
       filtered: result.filter((skill) => sourceSelection.has(getSkillSourceInfo(skill).key)),
       sourceCandidates: candidates,
-      preSelectionSourceGroups: groups,
     };
   }, [skills, skillDisplayNames, search, channelFilters, tagFilters, sourceSelection, filterMode, viewedPreset, presetSkillOrder]);
 
-  // Without a source selection the groups from above already describe
-  // `filtered`; only a narrowing selection forces a rebuild. That rebuild must
-  // keep the labels of the pre-selection groups: path labels are
-  // disambiguated against the other paths, so a group rebuilt from the
-  // survivors alone would read `skills` again instead of `a/skills`.
-  const sourceGroups = useMemo(() => {
-    if (!groupBySource) return null;
-    if (sourceSelection.size === 0) return preSelectionSourceGroups;
-    const labels = new Map(preSelectionSourceGroups.map((group) => [group.key, group.label]));
-    return buildSourceGroups(filtered).map((group) => {
-      const known = labels.get(group.key);
-      return known === undefined ? group : { ...group, label: known };
-    });
-  }, [groupBySource, sourceSelection.size, preSelectionSourceGroups, filtered]);
+  // Bundles come from the whole library, so filtering never moves a skill out
+  // of its bundle; only the skills on screen are listed under each heading.
+  const bundleIndex = useMemo(() => buildBundleIndex(skills), [skills]);
 
-  // A group opens on click, and stays open while the user is searching: a query
-  // that matched something inside a collapsed group would otherwise look like
-  // no match at all.
+  // A group stays open while the user is searching: a query that matched
+  // something inside a folded group would otherwise look like no match at all.
   const searching = search.trim() !== "";
   const sourceRows = useMemo<SkillListRow[]>(() => {
-    if (!sourceGroups) {
+    if (!groupBySource) {
       return filtered.map((skill) => ({ kind: "skill", skill }) as SkillListRow);
     }
+    const sections = groupIntoBundles(filtered, (skill) => getSkillSourceInfo(skill).key, bundleIndex);
+    // With no bundle on screen, an "Ungrouped" heading over everything says nothing.
+    const showHeader = sections.some((section) => section.bundle !== null);
     const rows: SkillListRow[] = [];
-    for (const group of sourceGroups) {
-      // Every source gets a header, including one that holds a single skill, so
-      // the grouped view reads the same way whatever the group's size.
-      const expanded = searching || (groupOpen[group.key] ?? group.skills.length === 1);
-      rows.push({ kind: "group", group, expanded });
+    for (const section of sections) {
+      const expanded = !showHeader || searching || (groupOpen[section.key] ?? true);
+      rows.push({ kind: "group", section, expanded, showHeader });
       if (expanded) {
-        for (const skill of group.skills) rows.push({ kind: "skill", skill });
+        for (const skill of section.items) rows.push({ kind: "skill", skill });
       }
     }
     return rows;
-  }, [filtered, sourceGroups, groupOpen, searching]);
+  }, [filtered, groupBySource, bundleIndex, groupOpen, searching]);
 
   const {
     isMultiSelect, setIsMultiSelect,
@@ -857,6 +846,44 @@ export function MySkills() {
       toast.success(`${skill.name} ${t("mySkills.enabledInPreset")}`);
     }
     await Promise.all([refreshManagedSkills(), refreshPresets()]);
+  };
+
+  /**
+   * Turns a whole bundle on or off in the viewed preset: on enables the skills
+   * that are still off, off disables the ones that are on, including skills
+   * a filter hides.
+   */
+  const handleToggleGroupInPreset = async (groupKey: string, groupSkills: ManagedSkill[]) => {
+    if (!viewedPreset || togglingGroupKey) return;
+    const enabling = groupSkills.some((skill) => !skill.preset_ids.includes(viewedPreset.id));
+    const targets = groupSkills.filter(
+      (skill) => skill.preset_ids.includes(viewedPreset.id) !== enabling
+    );
+    let count = 0;
+    let failed = 0;
+    setTogglingGroupKey(groupKey);
+    try {
+      for (const skill of targets) {
+        try {
+          if (enabling) await api.addSkillToPreset(skill.id, viewedPreset.id);
+          else await api.removeSkillFromPreset(skill.id, viewedPreset.id);
+          count++;
+        } catch {
+          failed++;
+        }
+      }
+      if (count > 0) {
+        toast.success(enabling
+          ? t("mySkills.batchEnabled", { count })
+          : t("mySkills.batchDisabled", { count }));
+      }
+      if (failed > 0) {
+        toast.error(t("mySkills.batchToggleFailed", { count: failed }));
+      }
+      await Promise.all([refreshManagedSkills(), refreshPresets()]);
+    } finally {
+      setTogglingGroupKey(null);
+    }
   };
 
   const handleCheckAllUpdates = async () => {
@@ -1544,29 +1571,43 @@ export function MySkills() {
           >
           {sourceRows.map((row) => {
             if (row.kind === "group") {
-              const label = row.group.label || t("mySkills.sourcePicker.unknownSource");
+              if (!row.showHeader) return null;
+              const { section } = row;
+              const label = section.bundle
+                ? section.bundle.label || t("mySkills.sourcePicker.unknownSource")
+                : t("mySkills.ungrouped");
+              // The toggle covers the whole bundle, filtered or not: a
+              // bundle's skills rely on one another.
+              const members = section.bundle?.skills ?? section.items;
+              const allEnabled = !!viewedPreset
+                && members.every((skill) => skill.preset_ids.includes(viewedPreset.id));
               return (
-                <button
-                  key={`group-${row.group.key}`}
-                  onClick={() =>
-                    setGroupOpen((prev) => ({ ...prev, [row.group.key]: !row.expanded }))
+                <SkillGroupHeader
+                  key={`group-${section.key}`}
+                  bundle={section.bundle}
+                  label={label}
+                  count={section.items.length}
+                  expanded={row.expanded}
+                  onToggleExpanded={() =>
+                    setGroupOpen((prev) => ({ ...prev, [section.key]: !row.expanded }))
                   }
-                  aria-expanded={row.expanded}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-md px-1 py-1.5 text-left text-[12px] font-semibold text-muted transition-colors hover:bg-surface-hover hover:text-secondary",
-                    viewMode === "grid" && "col-span-full"
-                  )}
-                >
-                  {row.expanded ? (
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                  )}
-                  <span className="truncate">{label}</span>
-                  <span className="shrink-0 text-[11px] font-medium text-faint">
-                    {row.group.count}
-                  </span>
-                </button>
+                  className={viewMode === "grid" ? "col-span-full" : undefined}
+                  control={
+                    viewedPreset && section.key !== UNGROUPED_KEY && !isMultiSelect ? (
+                      <ToggleSwitch
+                        checked={allEnabled}
+                        loading={togglingGroupKey === section.key}
+                        disabled={togglingGroupKey !== null}
+                        onChange={() => handleToggleGroupInPreset(section.key, members)}
+                        title={
+                          allEnabled
+                            ? t("mySkills.groupDisableAll", { preset: viewedPresetName })
+                            : t("mySkills.groupEnableAll", { preset: viewedPresetName })
+                        }
+                      />
+                    ) : null
+                  }
+                />
               );
             }
 
@@ -1638,6 +1679,7 @@ export function MySkills() {
                         </>
                       )}
                     </div>
+                    <SkillAvatar url={getSkillSourceInfo(skill).avatarUrl} />
                     <h3
                       className="flex-1 truncate text-[14px] font-semibold text-primary group-hover:text-accent-light"
                       title={displayName}
@@ -1899,10 +1941,11 @@ export function MySkills() {
                 </div>
 
                 <h3
-                  className="w-[180px] shrink-0 truncate text-[14px] font-semibold text-secondary group-hover:text-primary"
+                  className="flex w-[180px] shrink-0 items-center gap-2 text-[14px] font-semibold text-secondary group-hover:text-primary"
                   title={displayName}
                 >
-                  {displayName}
+                  <SkillAvatar url={getSkillSourceInfo(skill).avatarUrl} />
+                  <span className="truncate">{displayName}</span>
                 </h3>
 
                 <p className="min-w-0 flex-1 truncate text-[13px] text-muted">

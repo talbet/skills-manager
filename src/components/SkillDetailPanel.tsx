@@ -27,6 +27,8 @@ import { SkillMarkdown } from "./SkillMarkdown";
 import { AgentToggleSection, type AgentToggleItem } from "./AgentToggleSection";
 import { SkillProjectsSection } from "./SkillProjectsSection";
 import { SyncDots } from "./SyncDots";
+import { SkillAvatar } from "./SkillAvatar";
+import { getSkillSourceInfo } from "../lib/skillSource";
 
 interface Props {
   skill: ManagedSkill | null;
@@ -306,7 +308,12 @@ function SkillDetailPanelContent({
   return (
     <DetailSheet
       open={true}
-      title={skill.name}
+      title={
+        <span className="flex items-center gap-3">
+          <SkillAvatar url={getSkillSourceInfo(skill).avatarUrl} className="h-8 w-8" />
+          <span className="min-w-0">{skill.name}</span>
+        </span>
+      }
       description={skill.description ? <p className="line-clamp-3">{skill.description}</p> : undefined}
       meta={meta}
       onClose={onClose}

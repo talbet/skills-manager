@@ -468,7 +468,10 @@
       "apply": "Sync {{count}}",
       "noAgents": "No installed and enabled agents.",
       "allSynced": "Every selected skill is already on this agent"
-    }
+    },
+    "ungrouped": "Ungrouped",
+    "groupEnableAll": "Enable all in {{preset}}",
+    "groupDisableAll": "Disable all in {{preset}}"
   },
   "install": {
     "title": "Install Skills",
@@ -872,7 +875,9 @@
       "remove": "Click to remove from this agent",
       "conflict": "Rename the skill in your library first",
       "unavailable": "Select a target agent first"
-    }
+    },
+    "selectGroup": "Select {{count}}",
+    "deselectGroup": "Deselect"
   },
   "preset": {
     "create": "New Preset",
@@ -1028,7 +1033,9 @@
     "batchTagsUpdated": "Tags updated for {{count}} center skills",
     "batchTagsFailed": "{{count}} center skills failed to update tags",
     "batchTagScopeNote": "Tags live in the central library, so edits affect every project using these skills. Project-only local skills are left untouched.",
-    "revealInFileManager": "Open in {{app}}"
+    "revealInFileManager": "Open in {{app}}",
+    "groupEnableAll": "Enable all skills in this bundle",
+    "groupDisableAll": "Disable all skills in this bundle"
   },
   "presetActions": {
     "button": "Apply Preset",
@@ -1130,6 +1137,11 @@
       "deleteLocalBatchConfirm": "Permanently delete {{count}} local skills from {{agent}}? They exist only in this agent’s folder and cannot be recovered.",
       "deletedLocalBatch": "{{count}} local skills deleted",
       "deleteLocalBatchFailed": "{{count}} local skills failed to delete"
-    }
+    },
+    "groupSyncAll": "Add {{count}} missing skills from this bundle to {{agent}}",
+    "groupUnsyncAll": "Remove this bundle from {{agent}}",
+    "groupSynced": "{{count}} skills added",
+    "groupSyncFailed": "{{count}} skills failed to add",
+    "groupUnsyncConfirm": "Remove {{count}} skills from {{group}} from {{agent}}? This only unlinks them from the global workspace; central library files are kept."
   }
 }

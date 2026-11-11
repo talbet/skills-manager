@@ -5,6 +5,8 @@ import { cn } from "../utils";
 import type { ManagedSkill } from "../lib/tauri";
 import type { PickerStatus } from "../lib/skillPickerStatus";
 import { getTagColor } from "../lib/skillTags";
+import { getSkillSourceInfo } from "../lib/skillSource";
+import { SkillAvatar } from "./SkillAvatar";
 
 interface Props {
   skill: ManagedSkill;
@@ -74,6 +76,7 @@ export function SkillPickerRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
+          <SkillAvatar url={getSkillSourceInfo(skill).avatarUrl} />
           <span className="truncate text-[13px] font-medium text-primary">{skill.name}</span>
           <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-[11px] font-medium text-muted">
             {sourceLabel}

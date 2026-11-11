@@ -6,6 +6,8 @@ export interface SkillSourceInfo {
   /** What the user sees as the group title, or null when there is no source to name. */
   label: string | null;
   kind: SkillSourceKind;
+  /** The publisher's avatar, when the source names one (a GitHub owner). */
+  avatarUrl: string | null;
 }
 
 export type SkillSourceKind = "repo" | "site" | "path" | "unknown";
@@ -72,7 +74,13 @@ function parseGitRef(ref: string): SkillSourceInfo | null {
   host = host.toLowerCase();
 
   const label = host === "github.com" ? path : `${host}/${path}`;
-  return { key: `repo:${host}/${path}`, label, kind: "repo" };
+  // skills.sh skills resolve to their GitHub repo too, so this covers both.
+  const owner = path.split("/")[0];
+  const avatarUrl =
+    host === "github.com" && owner
+      ? `https://github.com/${encodeURIComponent(owner)}.png?size=64`
+      : null;
+  return { key: `repo:${host}/${path}`, label, kind: "repo", avatarUrl };
 }
 
 /**
@@ -96,11 +104,11 @@ function parseSiteRef(ref: string): SkillSourceInfo | null {
   const domain = site >= 0 ? segments[site + 1] : undefined;
   if (domain) {
     const lower = domain.toLowerCase();
-    return { key: `site:${lower}`, label: lower, kind: "site" };
+    return { key: `site:${lower}`, label: lower, kind: "site", avatarUrl: null };
   }
   try {
     const host = new URL(trimmed).host.toLowerCase();
-    return host ? { key: `site:${host}`, label: host, kind: "site" } : null;
+    return host ? { key: `site:${host}`, label: host, kind: "site", avatarUrl: null } : null;
   } catch {
     return null;
   }
@@ -115,7 +123,7 @@ function parseLocalRef(ref: string): SkillSourceInfo | null {
   const trimmed = ref.trim().replace(/\\/g, "/").replace(/\/+$/, "");
   if (!trimmed) return null;
   const label = trimmed.split("/").filter(Boolean).pop() || trimmed;
-  return { key: `path:${trimmed}`, label, kind: "path" };
+  return { key: `path:${trimmed}`, label, kind: "path", avatarUrl: null };
 }
 
 /**
@@ -164,7 +172,7 @@ export function getSkillSourceInfo(skill: ManagedSkill): SkillSourceInfo {
   // No generic git guess here: an unrecognised `source_type` whose
   // `source_ref` happens to have two segments (`docs/skills`) would otherwise
   // read as the repository `github.com/docs/skills`.
-  return { key: "unknown", label: null, kind: "unknown" };
+  return { key: "unknown", label: null, kind: "unknown", avatarUrl: null };
 }
 
 /**
@@ -249,4 +257,64 @@ export function buildSourceGroups(skills: ManagedSkill[]): SkillSourceGroup[] {
       })
     );
   });
+}
+
+/** Key of the section that holds every skill outside a bundle. */
+export const UNGROUPED_KEY = "ungrouped";
+
+/**
+ * Bundles: sources that ship more than one skill in the library. Skills in a
+ * bundle often rely on one another, so views keep them together under one
+ * heading; a source with a single skill is not a bundle.
+ *
+ * Built from the whole library, not a filtered view, so a search that narrows
+ * a bundle to one match does not move that skill out of its bundle. Labels come
+ * from `buildSourceGroups`, so path labels stay disambiguated.
+ */
+export function buildBundleIndex(library: ManagedSkill[]): Map<string, SkillSourceGroup> {
+  return new Map(
+    buildSourceGroups(library)
+      .filter((group) => group.kind !== "unknown" && group.count >= 2)
+      .map((group) => [group.key, group])
+  );
+}
+
+export interface SkillBundleSection<T> {
+  /** The bundle's source key, or `UNGROUPED_KEY`. */
+  key: string;
+  /** The library bundle, or null for the ungrouped section. */
+  bundle: SkillSourceGroup | null;
+  items: T[];
+}
+
+/**
+ * Splits `items` into bundle sections, in the index's order, followed by one
+ * ungrouped section. Order inside a section follows `items`. Empty sections are
+ * left out.
+ */
+export function groupIntoBundles<T>(
+  items: T[],
+  sourceKeyOf: (item: T) => string | null,
+  index: Map<string, SkillSourceGroup>
+): SkillBundleSection<T>[] {
+  const byKey = new Map<string, T[]>();
+  const ungrouped: T[] = [];
+  for (const item of items) {
+    const key = sourceKeyOf(item);
+    if (key !== null && index.has(key)) {
+      const list = byKey.get(key);
+      if (list) list.push(item);
+      else byKey.set(key, [item]);
+    } else {
+      ungrouped.push(item);
+    }
+  }
+
+  const sections: SkillBundleSection<T>[] = [];
+  for (const [key, bundle] of index) {
+    const list = byKey.get(key);
+    if (list) sections.push({ key, bundle, items: list });
+  }
+  if (ungrouped.length > 0) sections.push({ key: UNGROUPED_KEY, bundle: null, items: ungrouped });
+  return sections;
 }

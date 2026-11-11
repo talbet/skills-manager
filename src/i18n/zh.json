@@ -468,7 +468,10 @@
       "apply": "同步 {{count}} 项",
       "noAgents": "没有已安装并启用的 Agent。",
       "allSynced": "选中的 Skill 都已同步到这个 Agent"
-    }
+    },
+    "ungrouped": "未分组",
+    "groupEnableAll": "在 {{preset}} 中全部启用",
+    "groupDisableAll": "在 {{preset}} 中全部停用"
   },
   "install": {
     "title": "安装 Skills",
@@ -872,7 +875,9 @@
       "remove": "点击从此 Agent 移除",
       "conflict": "请先重命名库中的 Skill",
       "unavailable": "请先选择目标 Agent"
-    }
+    },
+    "selectGroup": "选择 {{count}} 个",
+    "deselectGroup": "取消选择"
   },
   "preset": {
     "create": "新建 Preset",
@@ -1028,7 +1033,9 @@
     "batchTagsUpdated": "已更新 {{count}} 个中心 Skill 的标签",
     "batchTagsFailed": "{{count}} 个中心 Skill 标签更新失败",
     "batchTagScopeNote": "标签保存在中央技能库里，改动会影响所有使用这个 Skill 的项目。只属于本项目的本地 Skill 不会被修改。",
-    "revealInFileManager": "在{{app}}中打开"
+    "revealInFileManager": "在{{app}}中打开",
+    "groupEnableAll": "启用此组中的所有技能",
+    "groupDisableAll": "停用此组中的所有技能"
   },
   "presetActions": {
     "button": "应用 Preset",
@@ -1130,6 +1137,11 @@
       "deleteLocalBatchConfirm": "永久删除 {{agent}} 里的 {{count}} 个本地 Skill？这些 Skill 只存在于该 Agent 目录，删除后无法恢复。",
       "deletedLocalBatch": "已删除 {{count}} 个本地 Skill",
       "deleteLocalBatchFailed": "{{count}} 个本地 Skill 删除失败"
-    }
+    },
+    "groupSyncAll": "将此组中缺少的 {{count}} 个技能添加到 {{agent}}",
+    "groupUnsyncAll": "从 {{agent}} 移除此组",
+    "groupSynced": "已添加 {{count}} 个技能",
+    "groupSyncFailed": "{{count}} 个技能添加失败",
+    "groupUnsyncConfirm": "从 {{agent}} 移除 {{group}} 的 {{count}} 个技能？这只会从全局工作区取消关联，中央技能库文件会保留。"
   }
 }
