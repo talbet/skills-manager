@@ -16,7 +16,6 @@
     "settings": "設定"
   },
   "help": {
-    "eyebrow": "操作指南",
     "title": "快速上手 Skills Manager",
     "description": "最快路徑：安裝 Skills → 開啟全域工作區 → 點擊 Preset 標籤啟用。按 ⌘K 可隨時呼出命令面板。按需使用專案工作區、Git 備份和設定。",
     "items": {
@@ -74,11 +73,13 @@
     "librarySkills": "Library Skills",
     "syncCoverage": "同步覆蓋",
     "connectedAgents": "已接入 Agent",
-    "synced": "已同步",
     "notSynced": "未同步",
     "scanImport": "掃描本機 Skills 匯入",
     "installNew": "安裝新 Skills",
-    "recentActivity": "近期動態"
+    "recentActivity": "近期動態",
+    "syncedTo": "已同步到 {{agents}}",
+    "divergedWarning": "{{count}} 個專案副本已分叉",
+    "backupStatus": "備份：{{status}}"
   },
   "agentControl": {
     "title": "讓你的 Agent 管理 Skills",
@@ -404,6 +405,12 @@
       "git": "Git",
       "skillssh": "skills.sh"
     },
+    "groupBySource": "依來源分組",
+    "sourcePicker": {
+      "label": "來源",
+      "clear": "清除來源篩選",
+      "unknownSource": "未分類"
+    },
     "tags": {
       "filter": "標籤",
       "allTags": "全部標籤",
@@ -418,7 +425,12 @@
       "manageHint": "右鍵重新命名或刪除",
       "tagRenamed": "標籤已重新命名",
       "tagDeleted": "標籤已刪除",
-      "deleteConfirm": "確定從所有技能中移除標籤「{{tag}}」嗎？"
+      "deleteConfirm": "確定從所有技能中移除標籤「{{tag}}」嗎？",
+      "manage": "編輯標籤",
+      "searchOrCreate": "搜尋或建立標籤",
+      "create": "建立「{{name}}」",
+      "addFirst": "標籤",
+      "noMatch": "沒有符合的標籤"
     },
     "selectMode": "多選",
     "selectedCount": "已選 {{count}} 個",
@@ -462,7 +474,26 @@
       "apply": "同步 {{count}} 項",
       "noAgents": "沒有已安裝並啟用的 Agent。",
       "allSynced": "選取的 Skill 都已同步到這個 Agent"
-    }
+    },
+    "ungrouped": "未分組",
+    "groupEnableAll": "在 {{preset}} 中全部啟用",
+    "groupDisableAll": "在 {{preset}} 中全部停用",
+    "presetSubtitle": "技能庫中的 {{total}} 個 Skill 裡，有 {{count}} 個在此 Preset 中",
+    "enableInPreset": "新增到 {{preset}}",
+    "disableInPreset": "從 {{preset}} 移除",
+    "presets": {
+      "manage": "新增到 Preset",
+      "manageWith": "所在 Preset：{{presets}}",
+      "search": "搜尋 Preset",
+      "none": "沒有符合的 Preset",
+      "add": "Preset"
+    },
+    "viewGrid": "卡片檢視",
+    "viewList": "清單檢視",
+    "tagFilterEnableAll": "全部啟用（{{count}}）",
+    "tagFilterDisableAll": "全部停用（{{count}}）",
+    "tagFilterEnableAllHint": "將目前顯示中未啟用的 {{count}} 個 Skill 加入 {{preset}}",
+    "tagFilterDisableAllHint": "從 {{preset}} 移除目前顯示的 {{count}} 個 Skill"
   },
   "install": {
     "title": "安裝 Skills",
@@ -622,6 +653,8 @@
     "repoPathDefaultHint": "目前使用預設中央倉庫路徑",
     "repoPathCustomHint": "目前使用自訂中央倉庫路徑",
     "repoPathPendingHint": "重新啟動應用後會把技能庫遷移到 {{path}}；在此之前仍使用目前位置。",
+    "repoPathTargetNotEmpty": "{{path}} 不是空資料夾。請為中央倉庫選擇一個空的或新建的資料夾。",
+    "repoPathTargetInsideLibrary": "{{path}} 位於目前的技能庫內。請選擇技能庫以外的資料夾。",
     "changeDir": "變更目錄",
     "openInFinder": "開啟資料夾",
     "syncMode": "預設同步模式",
@@ -864,7 +897,9 @@
       "remove": "點擊從此 Agent 移除",
       "conflict": "請先重新命名庫中的 Skill",
       "unavailable": "請先選擇目標 Agent"
-    }
+    },
+    "selectGroup": "選擇 {{count}} 個",
+    "deselectGroup": "取消選擇"
   },
   "preset": {
     "create": "新增 Preset",
@@ -1020,7 +1055,9 @@
     "batchTagsUpdated": "已更新 {{count}} 個中心 Skill 的標籤",
     "batchTagsFailed": "{{count}} 個中心 Skill 標籤更新失敗",
     "batchTagScopeNote": "標籤儲存在中央技能庫，改動會影響所有使用這個 Skill 的專案。只屬於本專案的本機 Skill 不會被修改。",
-    "revealInFileManager": "在{{app}}中開啟"
+    "revealInFileManager": "在{{app}}中開啟",
+    "groupEnableAll": "啟用此組中的所有 Skill",
+    "groupDisableAll": "停用此組中的所有 Skill"
   },
   "presetActions": {
     "button": "套用 Preset",
@@ -1122,6 +1159,11 @@
       "deleteLocalBatchConfirm": "永久刪除 {{agent}} 裡的 {{count}} 個本機 Skill？這些 Skill 只存在於該 Agent 目錄，刪除後無法復原。",
       "deletedLocalBatch": "已刪除 {{count}} 個本機 Skill",
       "deleteLocalBatchFailed": "{{count}} 個本機 Skill 刪除失敗"
-    }
+    },
+    "groupSyncAll": "將此組中缺少的 {{count}} 個 Skill 加入到 {{agent}}",
+    "groupUnsyncAll": "從 {{agent}} 移除此組",
+    "groupSynced": "已加入 {{count}} 個 Skill",
+    "groupSyncFailed": "{{count}} 個 Skill 加入失敗",
+    "groupUnsyncConfirm": "從 {{agent}} 移除 {{group}} 的 {{count}} 個 Skill？這只會取消與全域工作區的關聯，技能庫中的檔案會保留。"
   }
 }

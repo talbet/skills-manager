@@ -29,6 +29,7 @@ import { AgentIcon } from "./AgentIcon";
 import * as api from "../lib/tauri";
 import type { SyncHealth, ToolCategory, ToolInfo } from "../lib/tauri";
 import { getPresetIconOption } from "../lib/presetIcons";
+import { LIBRARY_PATH, presetViewPath, viewedPresetIdFrom } from "../lib/presetRoute";
 import { IS_MACOS } from "../lib/platform";
 
 function getSyncHealthIndicator(health: SyncHealth, skillCount: number): { color: string; title: string } | null {
@@ -49,7 +50,7 @@ export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { presets, viewedPreset, setViewedPresetId, closeSkillDetail, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, appUpdate } = useApp();
+  const { presets, closeSkillDetail, refreshPresets, refreshManagedSkills, projects, refreshProjects, tools, managedSkills, appUpdate } = useApp();
   const [showCreate, setShowCreate] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ id: string; name: string; icon?: string | null; description?: string | null } | null>(null);
@@ -172,12 +173,11 @@ export function Sidebar() {
     { name: t("sidebar.backup"), path: "/backup", icon: CloudUpload },
   ];
 
+  const viewedPresetId = viewedPresetIdFrom(location.pathname, location.search);
+
   const handleSwitchPreset = (id: string) => {
     closeSkillDetail();
-    setViewedPresetId(id);
-    if (location.pathname !== "/my-skills") {
-      navigate("/my-skills");
-    }
+    navigate(presetViewPath(id));
   };
 
   const handleCreatePreset = async (name: string, description?: string, icon?: string) => {
@@ -207,8 +207,8 @@ export function Sidebar() {
     if (!deleteTarget) return;
     await api.deletePreset(deleteTarget.id);
     await Promise.all([refreshPresets(), refreshManagedSkills()]);
-    if (location.pathname === "/settings") {
-      navigate("/my-skills");
+    if (location.pathname === "/settings" || viewedPresetId === deleteTarget.id) {
+      navigate(LIBRARY_PATH);
     }
     toast.success(t("preset.deleted"));
   };
@@ -397,7 +397,9 @@ export function Sidebar() {
         <div className="px-2.5 space-y-0.5 shrink-0">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            // The Library link stays unlit while one of its preset views is open.
+            const isActive = location.pathname === item.path
+              && !(item.path === LIBRARY_PATH && viewedPresetId);
             return (
               <Link
                 key={item.path}
@@ -447,7 +449,7 @@ export function Sidebar() {
                       {...droppableProvided.droppableProps}
                     >
                       {orderedPresets.map((preset, index) => {
-                        const isActive = viewedPreset?.id === preset.id;
+                        const isActive = viewedPresetId === preset.id;
                         const presetIcon = getPresetIconOption(preset);
                         const PresetIcon = presetIcon.icon;
                         return (
