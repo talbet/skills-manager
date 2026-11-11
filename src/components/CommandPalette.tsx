@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { presetViewPath } from "../lib/presetRoute";
 import { useTranslation } from "react-i18next";
 import {
   Search,
@@ -35,8 +36,6 @@ export function CommandPalette() {
     managedSkills,
     presets,
     projects,
-    viewedPreset,
-    setViewedPresetId,
     openSkillDetailById,
   } = useApp();
 
@@ -112,14 +111,7 @@ export function CommandPalette() {
           label: s.name,
           sublabel: s.description || `${s.skill_count} skills`,
           icon: <Icon className="h-3.5 w-3.5" />,
-          run: () => {
-            if (viewedPreset?.id !== s.id) {
-              setViewedPresetId(s.id);
-            }
-            if (!window.location.pathname.endsWith("/my-skills")) {
-              navigate("/my-skills");
-            }
-          },
+          run: () => navigate(presetViewPath(s.id)),
         };
       });
 
@@ -186,8 +178,6 @@ export function CommandPalette() {
     managedSkills,
     presets,
     projects,
-    viewedPreset?.id,
-    setViewedPresetId,
     openSkillDetailById,
     navigate,
     t,
@@ -240,8 +230,8 @@ export function CommandPalette() {
       if (groupItems.length === 0) return null;
       return (
         <div key={g.kind}>
-          <div className="px-4 pt-3 pb-1 font-mono text-[11px] uppercase tracking-[0.12em] text-faint">
-            {g.label} · {groupItems.length}
+          <div className="px-4 pt-3 pb-1 text-[11px] font-medium text-faint">
+            {g.label} <span className="tabular-nums">({groupItems.length})</span>
           </div>
           {groupItems.map((item) => {
             const idx = flatIndex++;

@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleSlash,
+  FolderTree,
   Loader2,
   Search,
   X,
@@ -29,6 +30,9 @@ import {
 } from "../lib/skillTags";
 import { AgentIcon } from "./AgentIcon";
 import { SkillPickerRow } from "./SkillPickerRow";
+import { SkillGroupHeader } from "./SkillGroupHeader";
+import { useSkillViewMode } from "../hooks/useSkillViewMode";
+import { buildBundleIndex, getSkillSourceInfo, groupIntoBundles } from "../lib/skillSource";
 
 const SOURCE_PRIORITY = ["local", "import", "git", "skillssh"];
 const VISIBLE_TARGET_ICON_LIMIT = 5;
@@ -77,6 +81,8 @@ function AddSkillsSheetBody({ onClose, target, managedSkills, onInstalled }: Pro
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [, , groupBySource, setGroupBySource] = useSkillViewMode();
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
 
   const initialAgents = target.kind === "project" ? target.initialSelectedAgents : [];
   const [selectedAgents, setSelectedAgents] = useState<string[]>(initialAgents);
@@ -204,6 +210,26 @@ function AddSkillsSheetBody({ onClose, target, managedSkills, onInstalled }: Pro
     });
   }, [filtered, ctx]);
 
+  const bundleIndex = useMemo(() => buildBundleIndex(managedSkills), [managedSkills]);
+  const sections = useMemo(() => {
+    if (!groupBySource) return null;
+    const result = groupIntoBundles(ordered, (skill) => getSkillSourceInfo(skill).key, bundleIndex);
+    // With no bundle on screen, an "Ungrouped" heading over everything says nothing.
+    return result.some((section) => section.bundle !== null) ? result : null;
+  }, [groupBySource, ordered, bundleIndex]);
+  const searching = search.trim() !== "";
+  const isExpanded = (key: string) => searching || (groupOpen[key] ?? true);
+  // The rows in the order they are drawn; shift-click ranges follow this order.
+  const displayOrder = useMemo(
+    () =>
+      sections
+        ? sections.flatMap((section) =>
+            searching || (groupOpen[section.key] ?? true) ? section.items : []
+          )
+        : ordered,
+    [sections, ordered, searching, groupOpen],
+  );
+
   // IDs of skills the user can add (status "available") in the current filtered view.
   const availableIds = useMemo(
     () => ordered.filter((s) => classifySkill(s, ctx) === "available").map((s) => s.id),
@@ -241,12 +267,12 @@ function AddSkillsSheetBody({ onClose, target, managedSkills, onInstalled }: Pro
 
   // Normal click toggles one row and moves the shift-click anchor there.
   const handleRowClick = (index: number) => (e: MouseEvent<HTMLDivElement>) => {
-    const skill = ordered[index];
+    const skill = displayOrder[index];
     if (e.shiftKey && anchorId) {
-      const anchorIndex = ordered.findIndex((s) => s.id === anchorId);
+      const anchorIndex = displayOrder.findIndex((s) => s.id === anchorId);
       if (anchorIndex !== -1) {
         const [lo, hi] = anchorIndex <= index ? [anchorIndex, index] : [index, anchorIndex];
-        const rangeIds = ordered
+        const rangeIds = displayOrder
           .slice(lo, hi + 1)
           .map((s) => s.id)
           .filter((id) => availableIds.includes(id));
@@ -266,6 +292,21 @@ function AddSkillsSheetBody({ onClose, target, managedSkills, onInstalled }: Pro
     }
     toggleSelect(skill.id);
     setAnchorId(skill.id);
+  };
+
+  /** Selects every addable skill of a bundle, or clears them when all are selected. */
+  const toggleGroupSelection = (groupSkills: ManagedSkill[]) => {
+    const ids = groupSkills.filter((s) => classifySkill(s, ctx) === "available").map((s) => s.id);
+    if (ids.length === 0) return;
+    const allSelected = ids.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
   };
 
   const toggleSourceFilter = (source: string) => {
@@ -584,16 +625,31 @@ function AddSkillsSheetBody({ onClose, target, managedSkills, onInstalled }: Pro
         </div>
 
         <div className="shrink-0 border-b border-border-subtle px-5 py-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t("addFromLibrary.searchPlaceholder")}
-              className="app-input w-full pl-9"
-              autoFocus
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("addFromLibrary.searchPlaceholder")}
+                className="app-input w-full pl-9"
+                autoFocus
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setGroupBySource(!groupBySource)}
+              aria-pressed={groupBySource}
+              className={cn(
+                "shrink-0 rounded-md p-2 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                groupBySource ? "bg-surface-active text-secondary" : "text-muted hover:text-tertiary"
+              )}
+              title={t("mySkills.groupBySource")}
+              aria-label={t("mySkills.groupBySource")}
+            >
+              <FolderTree className="h-4 w-4" />
+            </button>
           </div>
 
           {(allTags.length > 0 || skillsHaveUntagged) && (
@@ -676,19 +732,63 @@ function AddSkillsSheetBody({ onClose, target, managedSkills, onInstalled }: Pro
             </div>
           ) : (
             <div className="divide-y divide-border-subtle">
-              {ordered.map((skill, index) => {
-                const status = classifySkill(skill, ctx);
-                return (
-                  <SkillPickerRow
-                    key={skill.id}
-                    skill={skill}
-                    status={status}
-                    allTags={allTags}
-                    sourceLabel={sourceLabel(skill.source_type)}
-                    selected={selectedIds.has(skill.id)}
-                    onToggle={handleRowClick(index)}
+              {(sections ?? [{ key: "all", bundle: null, items: ordered }]).flatMap((section) => {
+                const expanded = !sections || isExpanded(section.key);
+                // Selecting a bundle selects all of it, filtered or not: a
+                // bundle's skills rely on one another.
+                const members = section.bundle?.skills ?? section.items;
+                const available = members.filter((s) => classifySkill(s, ctx) === "available");
+                const selectedInGroup = available.filter((s) => selectedIds.has(s.id)).length;
+                const groupState =
+                  selectedInGroup === 0 ? "none" : selectedInGroup === available.length ? "all" : "some";
+                const header = sections ? (
+                  <SkillGroupHeader
+                    key={`group-${section.key}`}
+                    bundle={section.bundle}
+                    label={
+                      section.bundle
+                        ? section.bundle.label || t("mySkills.sourcePicker.unknownSource")
+                        : t("mySkills.ungrouped")
+                    }
+                    count={section.items.length}
+                    expanded={expanded}
+                    onToggleExpanded={() =>
+                      setGroupOpen((prev) => ({ ...prev, [section.key]: !expanded }))
+                    }
+                    className="border-b-0 bg-bg-secondary px-4 pt-3 pb-1.5 first:pt-3"
+                    control={
+                      section.bundle ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleGroupSelection(members)}
+                          disabled={available.length === 0}
+                          aria-pressed={groupState === "all"}
+                          className="shrink-0 rounded-md px-2 py-0.5 text-[12px] font-medium text-accent-light transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:text-muted disabled:opacity-50"
+                        >
+                          {groupState === "all"
+                            ? t("addFromLibrary.deselectGroup")
+                            : t("addFromLibrary.selectGroup", { count: available.length })}
+                        </button>
+                      ) : null
+                    }
                   />
-                );
+                ) : null;
+                const rows = (expanded ? section.items : []).map((skill) => {
+                  const status = classifySkill(skill, ctx);
+                  const index = displayOrder.indexOf(skill);
+                  return (
+                    <SkillPickerRow
+                      key={skill.id}
+                      skill={skill}
+                      status={status}
+                      allTags={allTags}
+                      sourceLabel={sourceLabel(skill.source_type)}
+                      selected={selectedIds.has(skill.id)}
+                      onToggle={handleRowClick(index)}
+                    />
+                  );
+                });
+                return header ? [header, ...rows] : rows;
               })}
             </div>
           )}

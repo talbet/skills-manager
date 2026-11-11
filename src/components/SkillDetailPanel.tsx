@@ -27,6 +27,8 @@ import { SkillMarkdown } from "./SkillMarkdown";
 import { AgentToggleSection, type AgentToggleItem } from "./AgentToggleSection";
 import { SkillProjectsSection } from "./SkillProjectsSection";
 import { SyncDots } from "./SyncDots";
+import { SkillAvatar } from "./SkillAvatar";
+import { getSkillSourceInfo } from "../lib/skillSource";
 
 interface Props {
   skill: ManagedSkill | null;
@@ -37,6 +39,8 @@ interface Props {
   onToggleTool?: (tool: string, enabled: boolean) => void;
   projects?: Project[];
   onProjectsChanged?: () => void;
+  /** Editable tags and presets, supplied by the host that owns those writes. */
+  membership?: React.ReactNode;
 }
 
 export function SkillDetailPanel({
@@ -48,6 +52,7 @@ export function SkillDetailPanel({
   onToggleTool,
   projects,
   onProjectsChanged,
+  membership,
 }: Props) {
   if (!skill) return null;
 
@@ -71,6 +76,7 @@ export function SkillDetailPanel({
       onToggleTool={onToggleTool}
       projects={projects}
       onProjectsChanged={onProjectsChanged}
+      membership={membership}
     />
   );
 }
@@ -84,6 +90,7 @@ function SkillDetailPanelContent({
   onToggleTool,
   projects,
   onProjectsChanged,
+  membership,
 }: {
   skill: ManagedSkill;
   onClose: () => void;
@@ -93,6 +100,7 @@ function SkillDetailPanelContent({
   onToggleTool?: (tool: string, enabled: boolean) => void;
   projects?: Project[];
   onProjectsChanged?: () => void;
+  membership?: React.ReactNode;
 }) {
   const { t } = useTranslation();
   const [doc, setDoc] = useState<SkillDocument | null>(null);
@@ -228,7 +236,12 @@ function SkillDetailPanelContent({
     <>
       <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted">
         {tools && <SyncDots skill={skill} tools={tools} size="sm" includeOrphan />}
-        {skill.tags.length > 0 && (
+        {membership ? (
+          <>
+            {tools && <span className="mx-0.5 h-3 w-px bg-border-subtle" />}
+            {membership}
+          </>
+        ) : skill.tags.length > 0 && (
           <>
             {tools && <span className="mx-0.5 h-3 w-px bg-border-subtle" />}
             {skill.tags.map((tag) => (
@@ -284,7 +297,7 @@ function SkillDetailPanelContent({
               <div className="grid gap-2 md:grid-cols-2">
                 {metadataItems.map((item) => (
                   <div key={item.label} className="min-w-0">
-                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-faint">
+                    <div className="text-[11px] font-medium text-faint">
                       {item.label}
                     </div>
                     <div
@@ -306,7 +319,12 @@ function SkillDetailPanelContent({
   return (
     <DetailSheet
       open={true}
-      title={skill.name}
+      title={
+        <span className="flex items-center gap-3">
+          <SkillAvatar url={getSkillSourceInfo(skill).avatarUrl} className="h-8 w-8" />
+          <span className="min-w-0">{skill.name}</span>
+        </span>
+      }
       description={skill.description ? <p className="line-clamp-3">{skill.description}</p> : undefined}
       meta={meta}
       onClose={onClose}

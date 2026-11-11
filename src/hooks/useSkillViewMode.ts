@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 export type SkillViewMode = "grid" | "list";
 
 /**
- * My Skills view preferences, kept under one key so adding a preference does
+ * Skill list view preferences, kept under one key so adding a preference does
  * not add a second storage entry to keep in sync.
  *
  * The stored value used to be the bare string `"grid"` / `"list"`; that form is
  * still read, so an existing installation keeps its view mode.
+ *
+ * Several views can be mounted at once (the add-skills sheet sits on top of an
+ * agent page), so the preference lives in one module-level store: a change in
+ * one view shows up in the others instead of being overwritten by their stale
+ * copies.
  */
 interface ViewPreference {
   viewMode: SkillViewMode;
@@ -37,24 +42,36 @@ function readPreference(): ViewPreference {
   return DEFAULT_PREFERENCE;
 }
 
+let current: ViewPreference | null = null;
+const listeners = new Set<() => void>();
+
+function getSnapshot(): ViewPreference {
+  if (!current) current = readPreference();
+  return current;
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function update(patch: Partial<ViewPreference>) {
+  current = { ...getSnapshot(), ...patch };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // The selection still works for the current session.
+  }
+  for (const listener of listeners) listener();
+}
+
 export function useSkillViewMode() {
-  const [preference, setPreference] = useState<ViewPreference>(readPreference);
+  const preference = useSyncExternalStore(subscribe, getSnapshot);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(preference));
-    } catch {
-      // The selection still works for the current page.
-    }
-  }, [preference]);
-
-  const setViewMode = useCallback((next: SkillViewMode) => {
-    setPreference((prev) => ({ ...prev, viewMode: next }));
-  }, []);
-
-  const setGroupBySource = useCallback((next: boolean) => {
-    setPreference((prev) => ({ ...prev, groupBySource: next }));
-  }, []);
+  const setViewMode = useCallback((next: SkillViewMode) => update({ viewMode: next }), []);
+  const setGroupBySource = useCallback((next: boolean) => update({ groupBySource: next }), []);
 
   return [preference.viewMode, setViewMode, preference.groupBySource, setGroupBySource] as const;
 }

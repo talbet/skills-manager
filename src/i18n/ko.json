@@ -16,7 +16,6 @@
     "settings": "설정"
   },
   "help": {
-    "eyebrow": "가이드",
     "title": "Skills Manager 빠른 시작",
     "description": "스킬을 설치하고 전역 워크스페이스를 연 뒤 프리셋 버튼을 눌러 활성화하는 방법이 가장 빠릅니다. 언제든 ⌘K를 누르면 명령 팔레트가 열립니다. 필요에 따라 프로젝트 워크스페이스, Git 백업, 설정을 사용합니다.",
     "items": {
@@ -74,11 +73,13 @@
     "librarySkills": "라이브러리 스킬",
     "syncCoverage": "동기화 범위",
     "connectedAgents": "연결된 에이전트",
-    "synced": "동기화됨",
     "notSynced": "동기화 안 됨",
     "scanImport": "로컬 스킬 검사해서 가져오기",
     "installNew": "새 스킬 설치",
-    "recentActivity": "최근 활동"
+    "recentActivity": "최근 활동",
+    "syncedTo": "{{agents}}에 동기화됨",
+    "divergedWarning": "프로젝트 사본 {{count}}개가 갈라졌습니다",
+    "backupStatus": "백업: {{status}}"
   },
   "agentControl": {
     "title": "에이전트가 스킬을 관리하도록 하기",
@@ -404,6 +405,12 @@
       "git": "Git",
       "skillssh": "skills.sh"
     },
+    "groupBySource": "출처별로 묶기",
+    "sourcePicker": {
+      "label": "출처",
+      "clear": "출처 필터 지우기",
+      "unknownSource": "미분류"
+    },
     "tags": {
       "filter": "태그",
       "allTags": "모든 태그",
@@ -418,7 +425,12 @@
       "manageHint": "오른쪽 버튼을 눌러 이름을 바꾸거나 삭제하세요",
       "tagRenamed": "태그 이름을 바꿨습니다",
       "tagDeleted": "태그를 삭제했습니다",
-      "deleteConfirm": "모든 스킬에서 \"{{tag}}\" 태그를 뺄까요?"
+      "deleteConfirm": "모든 스킬에서 \"{{tag}}\" 태그를 뺄까요?",
+      "manage": "태그 편집",
+      "searchOrCreate": "태그 찾기 또는 만들기",
+      "create": "“{{name}}” 만들기",
+      "addFirst": "태그",
+      "noMatch": "맞는 태그가 없습니다"
     },
     "selectMode": "선택",
     "selectedCount": "{{count}}개 선택됨",
@@ -462,7 +474,26 @@
       "apply": "{{count}}개 동기화",
       "noAgents": "설치되어 있고 사용 중인 에이전트가 없습니다.",
       "allSynced": "선택한 스킬이 모두 이 에이전트에 이미 있습니다"
-    }
+    },
+    "ungrouped": "묶음 없음",
+    "groupEnableAll": "{{preset}}에서 모두 사용",
+    "groupDisableAll": "{{preset}}에서 모두 사용 안 함",
+    "presetSubtitle": "라이브러리 스킬 {{total}}개 중 {{count}}개가 이 프리셋에 있습니다",
+    "enableInPreset": "{{preset}}에 넣기",
+    "disableInPreset": "{{preset}}에서 빼기",
+    "presets": {
+      "manage": "프리셋에 넣기",
+      "manageWith": "포함된 프리셋: {{presets}}",
+      "search": "프리셋 찾기",
+      "none": "맞는 프리셋이 없습니다",
+      "add": "프리셋"
+    },
+    "viewGrid": "카드 보기",
+    "viewList": "목록 보기",
+    "tagFilterEnableAll": "모두 켜기 ({{count}})",
+    "tagFilterDisableAll": "모두 끄기 ({{count}})",
+    "tagFilterEnableAllHint": "표시된 스킬 중 꺼져 있는 {{count}}개를 {{preset}}에 넣기",
+    "tagFilterDisableAllHint": "표시된 스킬 {{count}}개를 {{preset}}에서 빼기"
   },
   "install": {
     "title": "스킬 설치",
@@ -622,6 +653,8 @@
     "repoPathDefaultHint": "기본 중앙 저장소 경로를 쓰는 중",
     "repoPathCustomHint": "직접 지정한 중앙 저장소 경로를 쓰는 중",
     "repoPathPendingHint": "앱을 다시 시작하면 라이브러리가 {{path}}(으)로 이동합니다. 그때까지 이 세션은 현재 위치를 계속 사용합니다.",
+    "repoPathTargetNotEmpty": "{{path}} 폴더가 비어 있지 않습니다. 중앙 저장소로 쓸 빈 폴더나 새 폴더를 고르세요.",
+    "repoPathTargetInsideLibrary": "{{path}} 폴더가 현재 라이브러리 안에 있습니다. 라이브러리 밖의 폴더를 고르세요.",
     "changeDir": "디렉터리 변경",
     "openInFinder": "폴더 열기",
     "syncMode": "기본 동기화 방식",
@@ -845,6 +878,8 @@
     "toastFailed": "스킬 {{count}}개를 추가하지 못했습니다",
     "toastAddedToProject": "\"{{skill}}\" 스킬을 {{project}}에 추가했습니다",
     "toastRemovedFromProject": "\"{{skill}}\" 스킬을 {{project}}에서 뺐습니다",
+    "removeConfirmTitle": "워크스페이스에서 제거",
+    "removeConfirm": "{{project}}({{agent}})에서 \"{{skill}}\" 폴더를 영구 삭제할까요? 되돌릴 수 없습니다.",
     "add": "추가",
     "installedShort": "추가됨",
     "projectsTitle": "프로젝트 워크스페이스",
@@ -862,7 +897,9 @@
       "remove": "눌러서 이 에이전트에서 빼기",
       "conflict": "라이브러리에서 스킬 이름을 먼저 바꾸세요",
       "unavailable": "대상 에이전트를 먼저 고르세요"
-    }
+    },
+    "selectGroup": "{{count}}개 선택",
+    "deselectGroup": "선택 해제"
   },
   "preset": {
     "create": "새 프리셋",
@@ -989,6 +1026,9 @@
     "batchImportFailed": "스킬 {{count}}개를 추가하지 못했습니다",
     "deleteSkill": "스킬 삭제",
     "deleteSkillConfirm": "\"{{name}}\" 스킬을 영구히 삭제할까요? 되돌릴 수 없습니다.",
+    "removeUnsyncedTitle": "워크스페이스 사본 삭제",
+    "removeUnsyncedConfirm": "이 사본에는 센터에 없는 내용이 있을 수 있습니다. 계속하면 영구 삭제되며 되돌릴 수 없습니다.",
+    "removeUnsyncedConfirmWithOthers": "이 사본에는 센터에 없는 내용이 있을 수 있습니다. 계속하면 이 사본과 함께 이 프리셋에서 센터와 같은 다른 사본 {{count}}개도 영구 삭제되며 되돌릴 수 없습니다.",
     "skillDeleted": "\"{{name}}\" 스킬을 삭제했습니다",
     "selectMode": "선택",
     "cancelSelect": "선택 끝내기",
@@ -1015,7 +1055,9 @@
     "batchTagsUpdated": "센터 스킬 {{count}}개의 태그를 수정했습니다",
     "batchTagsFailed": "센터 스킬 {{count}}개의 태그를 수정하지 못했습니다",
     "batchTagScopeNote": "태그는 중앙 라이브러리에 저장되므로 수정하면 이 스킬을 사용하는 모든 프로젝트에 적용됩니다. 이 프로젝트에만 있는 로컬 스킬은 변경되지 않습니다.",
-    "revealInFileManager": "{{app}}에서 열기"
+    "revealInFileManager": "{{app}}에서 열기",
+    "groupEnableAll": "이 묶음의 스킬 모두 사용",
+    "groupDisableAll": "이 묶음의 스킬 모두 사용 안 함"
   },
   "presetActions": {
     "button": "프리셋 적용",
@@ -1025,6 +1067,7 @@
     "action": "동작",
     "addMissing": "빠진 스킬 추가",
     "removeMatching": "해당하는 스킬 제거",
+    "removePreset": "이 워크스페이스에서 {{name}} 제거",
     "agents": "에이전트",
     "selectAgents": "에이전트를 하나 이상 고르세요",
     "noPresets": "쓸 수 있는 프리셋이 없습니다",
@@ -1116,6 +1159,11 @@
       "deleteLocalBatchConfirm": "{{agent}}에서 로컬 스킬 {{count}}개를 영구 삭제할까요? 이 스킬은 이 에이전트의 폴더에만 있어 복구할 수 없습니다.",
       "deletedLocalBatch": "로컬 스킬 {{count}}개를 삭제했습니다",
       "deleteLocalBatchFailed": "로컬 스킬 {{count}}개를 삭제하지 못했습니다"
-    }
+    },
+    "groupSyncAll": "이 묶음에서 빠진 스킬 {{count}}개를 {{agent}}에 추가",
+    "groupUnsyncAll": "{{agent}}에서 이 묶음 제거",
+    "groupSynced": "스킬 {{count}}개를 추가했습니다",
+    "groupSyncFailed": "스킬 {{count}}개를 추가하지 못했습니다",
+    "groupUnsyncConfirm": "{{group}}의 스킬 {{count}}개를 {{agent}}에서 제거할까요? 전역 워크스페이스 연결만 끊고 중앙 라이브러리 파일은 그대로 둡니다."
   }
 }

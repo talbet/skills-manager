@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   FolderOpen,
+  FolderTree,
   Search,
   LayoutGrid,
   List,
@@ -47,6 +48,15 @@ import { getErrorMessage } from "../lib/error";
 import { normalizeSkillSearch, skillSearchMatches } from "../lib/skillSearch";
 import { useRevealProjectFolder } from "../hooks/useRevealProjectFolder";
 import { AddSkillsSheet } from "../components/AddSkillsSheet";
+import { SkillAvatar } from "../components/SkillAvatar";
+import { SkillGroupHeader } from "../components/SkillGroupHeader";
+import {
+  buildBundleIndex,
+  getSkillSourceInfo,
+  groupIntoBundles,
+  UNGROUPED_KEY,
+  type SkillBundleSection,
+} from "../lib/skillSource";
 const projectLastUsedAgentsKey = (projectId: string) =>
   `project_last_used_export_agents:${projectId}`;
 
@@ -128,6 +138,10 @@ function getGroupStatus(variants: ProjectSkill[]): ProjectSkill["sync_status"] {
   return "project_only";
 }
 
+type ProjectListRow =
+  | { kind: "group"; section: SkillBundleSection<ProjectSkillGroup>; expanded: boolean }
+  | { kind: "skill"; skill: ProjectSkillGroup };
+
 export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -137,7 +151,10 @@ export function ProjectDetail() {
   const [skills, setSkills] = useState<ProjectSkill[]>([]);
   const [projectAgentTargets, setProjectAgentTargets] = useState<ProjectAgentTarget[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useSkillViewMode();
+  const [viewMode, setViewMode, groupBySource, setGroupBySource] = useSkillViewMode();
+  // Which bundles are folded is session state; bundles start open.
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
+  const [togglingGroupKey, setTogglingGroupKey] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<"all" | "enabled" | "disabled">("all");
   const [search, setSearch] = useState("");
   const [tagFilters, setTagFilters] = useState<Set<string>>(new Set());
@@ -315,6 +332,59 @@ export function ProjectDetail() {
       return true;
     });
   }, [groupedSkills, search, filterMode, tagFilters]);
+
+  // A project copy belongs to a bundle through the library skill it came from;
+  // a project-only skill has no source and stays ungrouped.
+  const bundleIndex = useMemo(() => buildBundleIndex(managedSkills), [managedSkills]);
+  const managedById = useMemo(
+    () => new Map(managedSkills.map((skill) => [skill.id, skill])),
+    [managedSkills]
+  );
+  const linkedManaged = useCallback(
+    (skill: ProjectSkillGroup) =>
+      skill.centerSkillIds.map((centerId) => managedById.get(centerId)).find(Boolean) ?? null,
+    [managedById]
+  );
+  const skillAvatarUrl = (skill: ProjectSkillGroup) => {
+    const managed = linkedManaged(skill);
+    return managed ? getSkillSourceInfo(managed).avatarUrl : null;
+  };
+  const bundleKeyOf = useCallback(
+    (skill: ProjectSkillGroup) => {
+      const managed = linkedManaged(skill);
+      return managed ? getSkillSourceInfo(managed).key : null;
+    },
+    [linkedManaged]
+  );
+  // Every project skill of each bundle, filtered or not: the group toggle acts
+  // on the whole bundle, because a bundle's skills rely on one another.
+  const projectBundleMembers = useMemo(() => {
+    const members = new Map<string, ProjectSkillGroup[]>();
+    for (const skill of groupedSkills) {
+      const key = bundleKeyOf(skill);
+      if (key === null) continue;
+      const list = members.get(key);
+      if (list) list.push(skill);
+      else members.set(key, [skill]);
+    }
+    return members;
+  }, [groupedSkills, bundleKeyOf]);
+  const projectRows = useMemo<ProjectListRow[]>(() => {
+    if (!groupBySource) return filtered.map((skill) => ({ kind: "skill", skill }));
+    const sections = groupIntoBundles(filtered, bundleKeyOf, bundleIndex);
+    // With no bundle on screen, an "Ungrouped" heading over everything says nothing.
+    if (!sections.some((section) => section.bundle !== null)) {
+      return filtered.map((skill) => ({ kind: "skill", skill }));
+    }
+    const searching = search.trim() !== "";
+    const rows: ProjectListRow[] = [];
+    for (const section of sections) {
+      const expanded = searching || (groupOpen[section.key] ?? true);
+      rows.push({ kind: "group", section, expanded });
+      if (expanded) for (const skill of section.items) rows.push({ kind: "skill", skill });
+    }
+    return rows;
+  }, [groupBySource, filtered, bundleKeyOf, bundleIndex, search, groupOpen]);
 
   const {
     isMultiSelect, setIsMultiSelect,
@@ -621,6 +691,44 @@ export function ProjectDetail() {
       toast.error(getErrorMessage(error, t("common.error")));
     } finally {
       setUpdatingProjectSkill(null);
+    }
+  };
+
+  /**
+   * Turns every copy of a bundle's skills in this project on, or off when all
+   * are already on, including skills a filter hides.
+   */
+  const handleToggleGroup = async (groupKey: string, groupSkills: ProjectSkillGroup[]) => {
+    if (!id || togglingGroupKey) return;
+    const nextEnabled = groupSkills.some((skill) => skill.enabledCount !== skill.totalCount);
+    const variants = groupSkills
+      .flatMap((skill) => skill.variants)
+      .filter((variant) => variant.enabled !== nextEnabled);
+    setTogglingGroupKey(groupKey);
+    try {
+      const results = await Promise.allSettled(
+        variants.map((variant) =>
+          api.toggleProjectSkill(id, variant.relative_path, variant.agent, nextEnabled)
+        )
+      );
+      const failed = results.filter((result) => result.status === "rejected");
+      const changed = groupSkills.filter((skill) =>
+        nextEnabled ? skill.enabledCount !== skill.totalCount : skill.enabledCount > 0
+      ).length;
+      if (failed.length === 0) {
+        toast.success(
+          nextEnabled
+            ? t("project.batchEnabled", { count: changed })
+            : t("project.batchDisabled", { count: changed })
+        );
+      } else {
+        toast.error(
+          getErrorMessage((failed[0] as PromiseRejectedResult).reason, t("common.error"))
+        );
+      }
+      await loadSkills();
+    } finally {
+      setTogglingGroupKey(null);
     }
   };
 
@@ -1042,6 +1150,18 @@ export function ProjectDetail() {
               >
                 <List className="h-4 w-4" />
               </button>
+              <button
+                onClick={() => setGroupBySource(!groupBySource)}
+                aria-pressed={groupBySource}
+                className={cn(
+                  "rounded-md p-2 transition-colors outline-none",
+                  groupBySource ? "bg-surface-active text-secondary" : "text-muted hover:text-tertiary"
+                )}
+                title={t("mySkills.groupBySource")}
+                aria-label={t("mySkills.groupBySource")}
+              >
+                <FolderTree className="h-4 w-4" />
+              </button>
 
               {/* Selection can stay active in either view. */}
               <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 self-center bg-border-subtle" />
@@ -1269,7 +1389,44 @@ export function ProjectDetail() {
               : "flex flex-col gap-0.5"
           )}
         >
-          {filtered.map((skill) => {
+          {projectRows.map((row) => {
+            if (row.kind === "group") {
+              const { section } = row;
+              const members = projectBundleMembers.get(section.key) ?? section.items;
+              const allEnabled = members.every(
+                (skill) => skill.enabledCount === skill.totalCount
+              );
+              return (
+                <SkillGroupHeader
+                  key={`group-${section.key}`}
+                  bundle={section.bundle}
+                  label={
+                    section.bundle
+                      ? section.bundle.label || t("mySkills.sourcePicker.unknownSource")
+                      : t("mySkills.ungrouped")
+                  }
+                  count={section.items.length}
+                  expanded={row.expanded}
+                  onToggleExpanded={() =>
+                    setGroupOpen((prev) => ({ ...prev, [section.key]: !row.expanded }))
+                  }
+                  className={viewMode === "grid" ? "col-span-full" : undefined}
+                  control={
+                    project.supports_skill_toggle && section.key !== UNGROUPED_KEY && !isMultiSelect ? (
+                      <ToggleSwitch
+                        checked={allEnabled}
+                        loading={togglingGroupKey === section.key}
+                        disabled={togglingGroupKey !== null}
+                        onChange={() => handleToggleGroup(section.key, members)}
+                        title={allEnabled ? t("project.groupDisableAll") : t("project.groupEnableAll")}
+                      />
+                    ) : null
+                  }
+                />
+              );
+            }
+            const skill = row.skill;
+            const avatarUrl = skillAvatarUrl(skill);
             const skillKey = getSkillKey(skill);
             const isSelected = selectedIds.has(skillKey);
             const isUpdatingCenter = updatingCenterSkill === skillKey;
@@ -1291,7 +1448,7 @@ export function ProjectDetail() {
                 <div
                   key={skillKey}
                   className={cn(
-                    "app-panel group relative flex h-full cursor-pointer flex-col overflow-hidden shadow-card transition-all hover:-translate-y-px hover:border-border hover:shadow-card-hover",
+                    "app-panel group relative flex h-full cursor-pointer flex-col overflow-hidden shadow-card transition-[box-shadow,border-color] hover:border-border hover:shadow-card-hover",
                     isMultiSelect && isSelected && "ring-1 ring-accent border-accent/40"
                   )}
                   onClick={() =>
@@ -1319,6 +1476,7 @@ export function ProjectDetail() {
                         />
                       )}
                     </div>
+                    <SkillAvatar url={avatarUrl} />
                     <h3
                       className="flex-1 truncate text-[14px] font-semibold text-primary"
                       title={skill.name}
@@ -1471,10 +1629,11 @@ export function ProjectDetail() {
                   )}
                 </div>
                 <h3
-                  className="w-[180px] shrink-0 truncate text-[14px] font-semibold text-secondary"
+                  className="flex w-[180px] shrink-0 items-center gap-2 text-[14px] font-semibold text-secondary"
                   title={skill.name}
                 >
-                  {skill.name}
+                  <SkillAvatar url={avatarUrl} />
+                  <span className="truncate">{skill.name}</span>
                 </h3>
 
                 <p className="min-w-0 flex-1 truncate text-[13px] text-muted">
@@ -1599,6 +1758,7 @@ export function ProjectDetail() {
       {detailSkill && project && (
         <ProjectSkillDetailPanel
           skill={detailSkill}
+          avatarUrl={skillAvatarUrl(detailSkill)}
           targets={exportTargets}
           togglingAgent={
             togglingAgentTarget?.skillKey === getSkillKey(detailSkill)
@@ -1689,6 +1849,7 @@ export function ProjectDetail() {
 
 function ProjectSkillDetailPanel({
   skill,
+  avatarUrl,
   targets,
   togglingAgent,
   onToggleAgent,
@@ -1699,6 +1860,7 @@ function ProjectSkillDetailPanel({
   onClose,
 }: {
   skill: ProjectSkillGroup;
+  avatarUrl: string | null;
   targets: ProjectAgentTarget[];
   togglingAgent: string | null;
   onToggleAgent: (agentKey: string, enabled: boolean) => void;
@@ -1773,7 +1935,12 @@ function ProjectSkillDetailPanel({
   return (
     <DetailSheet
       open={true}
-      title={skill.name}
+      title={
+        <span className="flex items-center gap-3">
+          <SkillAvatar url={avatarUrl} className="h-8 w-8" />
+          <span className="min-w-0">{skill.name}</span>
+        </span>
+      }
       description={skill.description ? <p className="line-clamp-3">{skill.description}</p> : undefined}
       meta={meta}
       onClose={onClose}

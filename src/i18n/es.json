@@ -16,7 +16,6 @@
     "settings": "Ajustes"
   },
   "help": {
-    "eyebrow": "Guía",
     "title": "Inicio rápido de Skills Manager",
     "description": "Ruta más rápida: instala skills → abre el Espacio de trabajo global → haz clic en una píldora de preset para activar. Pulsa ⌘K en cualquier momento para la paleta de comandos. Usa los Espacios de trabajo de proyecto, la Copia de seguridad con Git y los Ajustes según lo necesites.",
     "items": {
@@ -74,11 +73,13 @@
     "librarySkills": "Skills de la Biblioteca",
     "syncCoverage": "Cobertura de sincronización",
     "connectedAgents": "Agentes conectados",
-    "synced": "Sincronizado",
     "notSynced": "No sincronizado",
     "scanImport": "Escanear e importar skills locales",
     "installNew": "Instalar nuevos skills",
-    "recentActivity": "Actividad reciente"
+    "recentActivity": "Actividad reciente",
+    "syncedTo": "Sincronizado con {{agents}}",
+    "divergedWarning": "{{count}} copias de proyecto han divergido",
+    "backupStatus": "Copia de seguridad: {{status}}"
   },
   "agentControl": {
     "title": "Deja que tus agentes gestionen los skills",
@@ -268,6 +269,21 @@
       "noAgents": "No hay agentes instalados y habilitados.",
       "title": "Sincronizar {{count}} skills con agentes"
     },
+    "ungrouped": "Sin agrupar",
+    "groupEnableAll": "Habilitar todos en {{preset}}",
+    "groupDisableAll": "Deshabilitar todos en {{preset}}",
+    "presetSubtitle": "{{count}} de {{total}} skills de la biblioteca están en este preset",
+    "enableInPreset": "Agregar a {{preset}}",
+    "disableInPreset": "Quitar de {{preset}}",
+    "presets": {
+      "manage": "Agregar a un preset",
+      "manageWith": "En presets: {{presets}}",
+      "search": "Buscar un preset",
+      "none": "No hay presets coincidentes",
+      "add": "Preset"
+    },
+    "viewGrid": "Vista de tarjetas",
+    "viewList": "Vista de lista",
     "batchSyncFailed": "No se pudieron sincronizar {{count}} destinos",
     "batchSynced": "{{count}} destinos de skills sincronizados",
     "batchTagDialog": {
@@ -393,6 +409,12 @@
       "local": "Local",
       "skillssh": "skills.sh"
     },
+    "groupBySource": "Agrupar por origen",
+    "sourcePicker": {
+      "label": "Origen",
+      "clear": "Borrar filtro de origen",
+      "unknownSource": "Sin clasificar"
+    },
     "sourceRef": "Origen",
     "sourceResolved": "Origen resuelto",
     "sourceRevision": "Revisión",
@@ -411,6 +433,11 @@
       "addTag": "Agregar etiqueta...",
       "allTags": "Todas las etiquetas",
       "deleteConfirm": "¿Quitar la etiqueta \"{{tag}}\" de todos los skills?",
+      "manage": "Editar etiquetas",
+      "searchOrCreate": "Buscar o crear una etiqueta",
+      "create": "Crear “{{name}}”",
+      "addFirst": "Etiqueta",
+      "noMatch": "No hay etiquetas coincidentes",
       "deleteTag": "Eliminar etiqueta",
       "filter": "Etiquetas",
       "manageHint": "Clic derecho para renombrar o eliminar",
@@ -462,7 +489,11 @@
       "updating": "Actualizando"
     },
     "viewDoc": "Ver documentos",
-    "viewUpdates": "Ver"
+    "viewUpdates": "Ver",
+    "tagFilterEnableAll": "Habilitar todos ({{count}})",
+    "tagFilterDisableAll": "Deshabilitar todos ({{count}})",
+    "tagFilterEnableAllHint": "Añadir a “{{preset}}” los {{count}} skills mostrados que están deshabilitados",
+    "tagFilterDisableAllHint": "Quitar de “{{preset}}” los {{count}} skills mostrados"
   },
   "install": {
     "all": "Histórico",
@@ -744,6 +775,8 @@
     "repoPath": "Ruta de la biblioteca central",
     "repoPathCustomHint": "Usando una ruta personalizada de la biblioteca central",
     "repoPathPendingHint": "Reinicia la aplicación para mover la biblioteca a {{path}}. Hasta entonces, esta sesión sigue usando la ubicación actual.",
+    "repoPathTargetNotEmpty": "{{path}} no está vacía. Elige una carpeta vacía o nueva para la biblioteca central.",
+    "repoPathTargetInsideLibrary": "{{path}} está dentro de la biblioteca actual. Elige una carpeta fuera de ella.",
     "repoPathDefaultHint": "Usando la ruta predeterminada de la biblioteca central",
     "repoPathDesc": "Ubicación de almacenamiento predeterminada para todos los skills y las configuraciones de presets.",
     "repoPathEmpty": "Introduce primero una ruta de la biblioteca central",
@@ -857,12 +890,16 @@
     "toastFailed": "{{count}} skill(s) no se pudieron añadir",
     "toastInstalled": "{{count}} skill(s) añadidas",
     "toastRemovedFromProject": "«{{skill}}» eliminada de {{project}}",
+    "removeConfirmTitle": "Eliminar del espacio de trabajo",
+    "removeConfirm": "¿Eliminar permanentemente la carpeta «{{skill}}» de {{project}} ({{agent}})? Esta acción no se puede deshacer.",
     "tooltip": {
       "conflict": "Cambia el nombre de la skill primero en tu biblioteca",
       "installed": "Ya está en el espacio de trabajo",
       "remove": "Clic para eliminar de este agente",
       "unavailable": "Selecciona primero un agente de destino"
-    }
+    },
+    "selectGroup": "Seleccionar {{count}}",
+    "deselectGroup": "Deseleccionar"
   },
   "preset": {
     "create": "Nuevo preset",
@@ -918,6 +955,8 @@
     "batchSelectMode": "Selección en bloque",
     "batchTagScopeNote": "Las etiquetas viven en la biblioteca central, por lo que los cambios afectan a todos los proyectos que usan estos skills. Los skills locales solo del proyecto no se modifican.",
     "revealInFileManager": "Abrir en {{app}}",
+    "groupEnableAll": "Habilitar todos los skills de este grupo",
+    "groupDisableAll": "Deshabilitar todos los skills de este grupo",
     "batchTagsFailed": "{{count}} skills del centro no pudieron actualizar las etiquetas",
     "batchTagsUpdated": "Etiquetas actualizadas para {{count}} skills del centro",
     "batchToggleFailed": "{{count}} skills no se pudieron actualizar",
@@ -935,6 +974,9 @@
     "deleteSelected": "Eliminar {{count}}",
     "deleteSkill": "Eliminar skill",
     "deleteSkillConfirm": "¿Eliminar permanentemente el skill «{{name}}»? Esta acción no se puede deshacer.",
+    "removeUnsyncedTitle": "Eliminar copias del espacio de trabajo",
+    "removeUnsyncedConfirm": "Estas copias pueden contener contenido que no está en el Centro. Si continúas, se eliminarán permanentemente. Esta acción no se puede deshacer.",
+    "removeUnsyncedConfirmWithOthers": "Estas copias pueden contener contenido que no está en el Centro. Si continúas, se eliminarán permanentemente, junto con otras {{count}} copia(s) de este preset que coinciden con el Centro. Esta acción no se puede deshacer.",
     "deselectAll": "Anular selección",
     "disableSkill": "Deshabilitar",
     "disabled": "Deshabilitado",
@@ -1025,6 +1067,7 @@
     "action": "Acción",
     "addMissing": "Agregar skills faltantes",
     "removeMatching": "Eliminar skills coincidentes",
+    "removePreset": "Quitar {{name}} de este espacio de trabajo",
     "agents": "Agentes",
     "selectAgents": "Selecciona al menos un agente",
     "noPresets": "No hay presets disponibles",
@@ -1104,6 +1147,11 @@
       "uploadConfirmTitle": "¿Actualizar skill del centro?",
       "uploadedToast": "\"{{name}}\" subido al Centro de skills. No se sincronizó de vuelta a {{agent}}."
     },
+    "groupSyncAll": "Añadir a {{agent}} los {{count}} skills faltantes de este grupo",
+    "groupUnsyncAll": "Quitar este grupo de {{agent}}",
+    "groupSynced": "{{count}} skills añadidos",
+    "groupSyncFailed": "No se pudieron añadir {{count}} skills",
+    "groupUnsyncConfirm": "¿Quitar de {{agent}} {{count}} skills de {{group}}? Esto solo los desvincula del espacio de trabajo global; los archivos de la biblioteca central se conservan.",
     "noAgents": "No hay agentes instalados",
     "noAgentsHint": "Configura las rutas de los agentes en Ajustes para empezar.",
     "noSkillsForAgent": "No hay skills instalados. Haz clic en Añadir skill para instalar desde la biblioteca.",

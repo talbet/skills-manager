@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Download,
   FileText,
+  FolderTree,
   Globe,
   LayoutGrid,
   List,
@@ -35,6 +36,15 @@ import { getErrorMessage } from "../lib/error";
 import { normalizeSkillSearch, skillSearchMatches } from "../lib/skillSearch";
 import { getTagActiveColor, getTagColor, pruneStaleTagFilters, UNTAGGED_FILTER } from "../lib/skillTags";
 import { AddSkillsSheet } from "../components/AddSkillsSheet";
+import { SkillAvatar } from "../components/SkillAvatar";
+import { SkillGroupHeader } from "../components/SkillGroupHeader";
+import { ToggleSwitch } from "../components/ToggleSwitch";
+import {
+  buildBundleIndex,
+  getSkillSourceInfo,
+  groupIntoBundles,
+  UNGROUPED_KEY,
+} from "../lib/skillSource";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { MultiSelectToolbar } from "../components/MultiSelectToolbar";
 import type { WorkspaceConfig } from "./workspaceConfigs";
@@ -52,6 +62,7 @@ interface WorkspaceSkillCardStatus {
 function WorkspaceSkillCard({
   viewMode,
   title,
+  avatarUrl = null,
   description,
   tags = [],
   status,
@@ -65,6 +76,7 @@ function WorkspaceSkillCard({
 }: {
   viewMode: "grid" | "list";
   title: string;
+  avatarUrl?: string | null;
   description?: string | null;
   tags?: WorkspaceSkillCardTag[];
   status: WorkspaceSkillCardStatus;
@@ -104,10 +116,11 @@ function WorkspaceSkillCard({
           {leadingSlot}
         </div>
         <h3
-          className="w-[180px] shrink-0 truncate text-[14px] font-semibold text-secondary group-hover:text-primary"
+          className="flex w-[180px] shrink-0 items-center gap-2 text-[14px] font-semibold text-secondary group-hover:text-primary"
           title={title}
         >
-          {title}
+          <SkillAvatar url={avatarUrl} />
+          <span className="truncate">{title}</span>
         </h3>
         <p className="min-w-0 flex-1 truncate text-[13px] text-muted">
           {description || "-"}
@@ -155,7 +168,7 @@ function WorkspaceSkillCard({
   return (
     <div
       className={cn(
-        "app-panel group relative flex h-full cursor-pointer flex-col overflow-hidden shadow-card transition-all hover:-translate-y-px hover:border-border hover:shadow-card-hover",
+        "app-panel group relative flex h-full cursor-pointer flex-col overflow-hidden shadow-card transition-[box-shadow,border-color] hover:border-border hover:shadow-card-hover",
         selectable && selected && "ring-1 ring-accent border-accent/40"
       )}
       onClick={onClick}
@@ -164,6 +177,7 @@ function WorkspaceSkillCard({
         <div className="flex h-4 w-4 shrink-0 items-center justify-center">
           {leadingSlot}
         </div>
+        <SkillAvatar url={avatarUrl} />
         <h3
           className="flex-1 truncate text-[14px] font-semibold text-primary group-hover:text-accent-light"
           title={title}
@@ -243,7 +257,15 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
   const { t } = useTranslation();
   const { tools, managedSkills, presets, refreshManagedSkills, refreshTools } = useApp();
 
-  const [viewMode, setViewMode] = useSkillViewMode();
+  const [viewMode, setViewMode, groupBySource, setGroupBySource] = useSkillViewMode();
+  // Which bundles are folded is session state; bundles start open.
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
+  const [togglingGroupKey, setTogglingGroupKey] = useState<string | null>(null);
+  const [groupUnsyncConfirm, setGroupUnsyncConfirm] = useState<{
+    key: string;
+    label: string;
+    skills: ManagedSkill[];
+  } | null>(null);
   const [search, setSearch] = useState("");
   const [tagFilters, setTagFilters] = useState<Set<string>>(new Set());
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -489,6 +511,32 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
 
   const localSkillKey = (skill: ProjectSkill) => `${skill.agent}:${skill.relative_path}`;
 
+  // A copy on disk belongs to a bundle through the library skill it was
+  // deployed from; a local-only copy has no source and stays ungrouped.
+  const bundleIndex = useMemo(() => buildBundleIndex(managedSkills), [managedSkills]);
+  const managedById = useMemo(
+    () => new Map(managedSkills.map((skill) => [skill.id, skill])),
+    [managedSkills]
+  );
+  const linkedManaged = useCallback(
+    (skill: ProjectSkill) =>
+      (skill.center_skill_id && managedById.get(skill.center_skill_id)) || null,
+    [managedById]
+  );
+  const localSections = useMemo(() => {
+    if (!groupBySource) return null;
+    const sections = groupIntoBundles(
+      visibleLocalSkills,
+      (skill) => {
+        const managed = linkedManaged(skill);
+        return managed ? getSkillSourceInfo(managed).key : null;
+      },
+      bundleIndex
+    );
+    // With no bundle on screen, an "Ungrouped" heading over everything says nothing.
+    return sections.some((section) => section.bundle !== null) ? sections : null;
+  }, [groupBySource, visibleLocalSkills, linkedManaged, bundleIndex]);
+
   const {
     isMultiSelect, setIsMultiSelect,
     selectedIds,
@@ -588,6 +636,65 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
       toast.error(getErrorMessage(e, t("common.error")));
     } finally {
       setRemovingLocalSkillId(null);
+    }
+  };
+
+  /**
+   * Turning a bundle on deploys every library skill of that source that is not
+   * on this agent yet, including ones not on screen: a bundle's skills rely on
+   * one another. Turning it off is confirmed first and unlinks the bundle's
+   * deployed skills; the library copies are kept.
+   */
+  const handleSyncGroup = async (key: string, groupSkills: ManagedSkill[]) => {
+    if (!agentKey || togglingGroupKey) return;
+    const missing = groupSkills.filter(
+      (skill) => !skill.targets.some((target) => target.tool === agentKey)
+    );
+    setTogglingGroupKey(key);
+    let synced = 0;
+    const failures: string[] = [];
+    try {
+      for (const skill of missing) {
+        try {
+          await api.syncSkillToTool(skill.id, agentKey);
+          synced++;
+        } catch (e) {
+          failures.push(getErrorMessage(e, t("common.error")));
+        }
+      }
+      if (synced > 0) toast.success(t("globalWorkspace.groupSynced", { count: synced }));
+      if (failures.length > 0) {
+        toast.error(
+          [t("globalWorkspace.groupSyncFailed", { count: failures.length }), failures[0]].join(" — ")
+        );
+      }
+      await Promise.all([refreshManagedSkills(), refreshTools(), loadLocalSkills()]);
+    } finally {
+      setTogglingGroupKey(null);
+    }
+  };
+
+  const handleUnsyncGroup = async () => {
+    if (!agentKey || !groupUnsyncConfirm) return;
+    const { key, skills: groupSkills } = groupUnsyncConfirm;
+    setTogglingGroupKey(key);
+    let removed = 0;
+    let failed = 0;
+    try {
+      for (const skill of groupSkills) {
+        try {
+          await api.unsyncSkillFromTool(skill.id, agentKey);
+          removed++;
+        } catch {
+          failed++;
+        }
+      }
+      if (removed > 0) toast.success(t("globalWorkspace.batchRemoved", { count: removed }));
+      if (failed > 0) toast.error(t("globalWorkspace.batchRemoveFailed", { count: failed }));
+      await Promise.all([refreshManagedSkills(), refreshTools(), loadLocalSkills()]);
+    } finally {
+      setTogglingGroupKey(null);
+      setGroupUnsyncConfirm(null);
     }
   };
 
@@ -947,6 +1054,18 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
               >
                 <List className="h-4 w-4" />
               </button>
+              <button
+                onClick={() => setGroupBySource(!groupBySource)}
+                aria-pressed={groupBySource}
+                className={cn(
+                  "rounded-md p-2 transition-colors outline-none",
+                  groupBySource ? "bg-surface-active text-secondary" : "text-muted hover:text-tertiary"
+                )}
+                title={t("mySkills.groupBySource")}
+                aria-label={t("mySkills.groupBySource")}
+              >
+                <FolderTree className="h-4 w-4" />
+              </button>
 
               {/* Selection can stay active in either view. */}
               <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 self-center bg-border-subtle" />
@@ -1122,28 +1241,79 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
               : "flex flex-col gap-0.5"
           )}
         >
-          {visibleLocalSkills.map((skill) => {
-            const statusMeta = getLocalStatusMeta(t, skill.sync_status);
-            const isManaged = !!skill.center_skill_id && managedLocalIds.has(skill.center_skill_id);
-            const key = localSkillKey(skill);
-
-            return (
-              <WorkspaceSkillCard
-                key={key}
-                viewMode={viewMode}
-                title={skill.name}
-                description={skill.description || skill.relative_path}
-                tags={skill.tags.map((tag) => ({ label: tag, className: getTagColor(tag, allLocalTags) }))}
-                status={statusMeta}
-                fileCount={skill.files.length}
-                active={isManaged}
-                actions={isMultiSelect ? undefined : renderLocalSkillActions(skill, viewMode)}
-                actionsHover={viewMode === "list"}
-                selectable={isMultiSelect}
-                selected={selectedIds.has(key)}
-                onClick={() => isMultiSelect ? toggleSelect(key) : void openLocalDetail(skill)}
-              />
+          {(localSections ?? [{ key: UNGROUPED_KEY, bundle: null, items: visibleLocalSkills }]).map((section) => {
+            const searching = search.trim() !== "";
+            const expanded = !localSections || searching || (groupOpen[section.key] ?? true);
+            const bundleSkills = section.bundle?.skills ?? [];
+            const deployed = bundleSkills.filter((skill) =>
+              skill.targets.some((target) => target.tool === agentKey)
             );
+            const allDeployed = bundleSkills.length > 0 && deployed.length === bundleSkills.length;
+            const label = section.bundle
+              ? section.bundle.label || t("mySkills.sourcePicker.unknownSource")
+              : t("mySkills.ungrouped");
+            return [
+              localSections ? (
+                <SkillGroupHeader
+                  key={`group-${section.key}`}
+                  bundle={section.bundle}
+                  label={label}
+                  count={section.items.length}
+                  expanded={expanded}
+                  onToggleExpanded={() =>
+                    setGroupOpen((prev) => ({ ...prev, [section.key]: !expanded }))
+                  }
+                  className={viewMode === "grid" ? "col-span-full" : undefined}
+                  control={
+                    section.bundle && !isMultiSelect && currentTool ? (
+                      <ToggleSwitch
+                        checked={allDeployed}
+                        loading={togglingGroupKey === section.key}
+                        disabled={togglingGroupKey !== null}
+                        onChange={() =>
+                          allDeployed
+                            ? setGroupUnsyncConfirm({ key: section.key, label, skills: deployed })
+                            : void handleSyncGroup(section.key, bundleSkills)
+                        }
+                        title={
+                          allDeployed
+                            ? t("globalWorkspace.groupUnsyncAll", { agent: currentTool.display_name })
+                            : t("globalWorkspace.groupSyncAll", {
+                                count: bundleSkills.length - deployed.length,
+                                agent: currentTool.display_name,
+                              })
+                        }
+                      />
+                    ) : null
+                  }
+                />
+              ) : null,
+              ...(expanded ? section.items : []).map((skill) => {
+                const statusMeta = getLocalStatusMeta(t, skill.sync_status);
+                const isManaged = !!skill.center_skill_id && managedLocalIds.has(skill.center_skill_id);
+                const key = localSkillKey(skill);
+                const managed = linkedManaged(skill);
+
+                return (
+                  <WorkspaceSkillCard
+                    key={key}
+                    viewMode={viewMode}
+                    title={skill.name}
+                    avatarUrl={managed ? getSkillSourceInfo(managed).avatarUrl : null}
+                    description={skill.description || skill.relative_path}
+                    tags={skill.tags.map((tag) => ({ label: tag, className: getTagColor(tag, allLocalTags) }))}
+                    status={statusMeta}
+                    fileCount={skill.files.length}
+                    active={isManaged}
+                    actions={isMultiSelect ? undefined : renderLocalSkillActions(skill, viewMode)}
+                    actionsHover={viewMode === "list"}
+                    selectable={isMultiSelect}
+                    selected={selectedIds.has(key)}
+                    onClick={() => isMultiSelect ? toggleSelect(key) : void openLocalDetail(skill)}
+                  />
+                );
+              }),
+            ];
           })}
         </div>
         </>
@@ -1166,7 +1336,18 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
 
       <DetailSheet
         open={!!localDetailSkill}
-        title={localDetailSkill?.name ?? ""}
+        title={
+          <span className="flex items-center gap-3">
+            <SkillAvatar
+              url={(() => {
+                const managed = localDetailSkill && linkedManaged(localDetailSkill);
+                return managed ? getSkillSourceInfo(managed).avatarUrl : null;
+              })()}
+              className="h-8 w-8"
+            />
+            <span className="min-w-0">{localDetailSkill?.name ?? ""}</span>
+          </span>
+        }
         description={localDetailSkill?.description}
         meta={
           localDetailSkill ? (
@@ -1267,6 +1448,21 @@ export function WorkspaceView({ config }: { config: WorkspaceConfig }) {
         confirmLabel={t("globalWorkspace.removeSkill")}
         onClose={() => setBatchUnsyncConfirm(false)}
         onConfirm={handleBatchUnsync}
+      />
+
+      <ConfirmDialog
+        open={!!groupUnsyncConfirm}
+        title={t("globalWorkspace.removeSkill")}
+        message={t("globalWorkspace.groupUnsyncConfirm", {
+          count: groupUnsyncConfirm?.skills.length ?? 0,
+          group: groupUnsyncConfirm?.label ?? "",
+          agent: currentTool?.display_name ?? "",
+        })}
+        details={groupUnsyncConfirm?.skills.map((skill) => skill.name)}
+        tone="warning"
+        confirmLabel={t("globalWorkspace.removeSkill")}
+        onClose={() => setGroupUnsyncConfirm(null)}
+        onConfirm={handleUnsyncGroup}
       />
 
       <ConfirmDialog

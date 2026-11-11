@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Layers, CheckCircle2, Bot, Plus, Download, AlertTriangle } from "lucide-react";
+import { Plus, Download, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApp } from "../context/AppContext";
 import { AgentControlSetupCard } from "../components/AgentControlSetupCard";
+import { BackupStatusLink } from "../components/BackupStatusLink";
 
 export function Dashboard() {
   const { t } = useTranslation();
@@ -32,21 +33,23 @@ export function Dashboard() {
   );
 
   const coverageLabel = totalSkills === 0 ? "0" : `${syncedSkills}/${totalSkills}`;
-  const syncCardIcon = divergedCount > 0 ? AlertTriangle : CheckCircle2;
-  const syncCardColor = divergedCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400";
-  const syncCardBg = divergedCount > 0 ? "bg-amber-500/[0.08]" : "bg-emerald-500/[0.08]";
+  const toolName = (key: string) => tools.find((tool) => tool.key === key)?.display_name ?? key;
+  const sourceLabel = (sourceType: string) => (sourceType === "skillssh" ? "skills.sh" : sourceType);
 
   return (
     <div className="app-page app-page-narrow">
-      <div className="app-page-header">
-        <h1 className="app-page-title">{t("dashboard.greeting")}</h1>
-        <p className="app-page-subtitle text-tertiary">
-          {t("dashboard.summary", {
-            skills: totalSkills,
-            agents: enabledAgents.length,
-            projects: projects.length,
-          })}
-        </p>
+      <div className="app-page-header flex items-start justify-between gap-4">
+        <div>
+          <h1 className="app-page-title">{t("dashboard.greeting")}</h1>
+          <p className="app-page-subtitle text-tertiary">
+            {t("dashboard.summary", {
+              skills: totalSkills,
+              agents: enabledAgents.length,
+              projects: projects.length,
+            })}
+          </p>
+        </div>
+        <BackupStatusLink refreshKey={managedSkills} className="-mr-2.5 shrink-0" />
       </div>
 
       <AgentControlSetupCard />
@@ -54,46 +57,24 @@ export function Dashboard() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3.5">
         {[
-          {
-            title: t("dashboard.librarySkills"),
-            value: String(totalSkills),
-            icon: Layers,
-            color: "text-accent-light",
-            bg: "bg-accent-bg",
-          },
-          {
-            title: t("dashboard.syncCoverage"),
-            value: coverageLabel,
-            icon: syncCardIcon,
-            color: syncCardColor,
-            bg: syncCardBg,
-          },
-          {
-            title: t("dashboard.connectedAgents"),
-            value: String(enabledAgents.length),
-            icon: Bot,
-            color: "text-sky-600 dark:text-sky-400",
-            bg: "bg-sky-500/[0.08]",
-          },
-        ].map((stat, i) => {
-          const Icon = stat.icon;
-          return (
-            <div
-              key={i}
-              className="app-panel flex items-center justify-between px-4 py-4 transition-colors hover:border-border"
-            >
-              <div>
-                <p className="app-section-title mb-1">
-                  {stat.title}
-                </p>
-                <h3 className="text-[17px] font-semibold text-primary leading-none">{stat.value}</h3>
-              </div>
-              <div className={`p-2 rounded-md ${stat.bg} ${stat.color} border border-border-subtle`}>
-                <Icon className="w-4 h-4" />
-              </div>
-            </div>
-          );
-        })}
+          { title: t("dashboard.librarySkills"), value: String(totalSkills), warning: false },
+          // Diverged project copies are the one state worth flagging here.
+          { title: t("dashboard.syncCoverage"), value: coverageLabel, warning: divergedCount > 0 },
+          { title: t("dashboard.connectedAgents"), value: String(enabledAgents.length), warning: false },
+        ].map((stat) => (
+          <div key={stat.title} className="app-panel px-4 py-3.5">
+            <p className="app-section-title mb-1.5">{stat.title}</p>
+            <p className="flex items-center gap-1.5 text-[17px] font-semibold leading-none text-primary tabular-nums">
+              {stat.value}
+              {stat.warning && (
+                <AlertTriangle
+                  className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400"
+                  aria-label={t("dashboard.divergedWarning", { count: divergedCount })}
+                />
+              )}
+            </p>
+          </div>
+        ))}
       </div>
 
       {/* Actions */}
@@ -146,12 +127,12 @@ export function Dashboard() {
                     <h4 className="text-[13px] text-secondary font-medium flex items-center gap-1.5">
                       {skill.name}
                       <span className="text-[11px] px-1.5 py-px rounded-full bg-surface-hover text-muted border border-border font-normal">
-                        {skill.source_type}
+                        {sourceLabel(skill.source_type)}
                       </span>
                     </h4>
                     <p className="text-[13px] text-muted mt-px">
                       {skill.targets.length > 0
-                        ? `${t("dashboard.synced")} → ${skill.targets.map((target) => target.tool).join(", ")}`
+                        ? t("dashboard.syncedTo", { agents: skill.targets.map((target) => toolName(target.tool)).join(", ") })
                         : t("dashboard.notSynced")}
                     </p>
                   </div>

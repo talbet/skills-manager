@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Loader2, Minus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { cn } from "../utils";
@@ -177,7 +177,7 @@ export function PresetBar({
                   aria-label={t("presetActions.removePreset", { name: preset.name })}
                   className="rounded-md p-1 text-amber-600 transition-colors hover:bg-amber-500/12 disabled:opacity-50 dark:text-amber-400"
                 >
-                  <X className="h-3 w-3" />
+                  <Minus className="h-3 w-3" />
                 </button>
               )}
             </div>
