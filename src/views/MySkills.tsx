@@ -147,6 +147,9 @@ function SortableSkillItem({
   );
 }
 
+/** Busy key for the tag filter row's enable/disable-all buttons. */
+const TAG_FILTER_TOGGLE_KEY = "__tag_filter__";
+
 function getToolDisplayName(toolKey: string, tools: ToolInfo[]) {
   return tools.find((tool) => tool.key === toolKey)?.display_name || toolKey;
 }
@@ -805,15 +808,25 @@ export function MySkills() {
    * that are still off, off disables the ones that are on, including skills
    * a filter hides.
    */
-  const handleToggleGroupInPreset = async (groupKey: string, groupSkills: ManagedSkill[]) => {
-    if (!viewedPreset || togglingGroupKey) return;
+  const handleToggleGroupInPreset = (groupKey: string, groupSkills: ManagedSkill[]) => {
+    if (!viewedPreset) return;
     const enabling = groupSkills.some((skill) => !skill.preset_ids.includes(viewedPreset.id));
-    const targets = groupSkills.filter(
+    return handleSetSkillsInPreset(groupKey, groupSkills, enabling);
+  };
+
+  /**
+   * Adds every given skill to the viewed preset, or removes every one, skipping
+   * those already in the wanted state. `busyKey` marks which control is working.
+   */
+  const handleSetSkillsInPreset = async (busyKey: string, candidates: ManagedSkill[], enabling: boolean) => {
+    if (!viewedPreset || togglingGroupKey) return;
+    const targets = candidates.filter(
       (skill) => skill.preset_ids.includes(viewedPreset.id) !== enabling
     );
+    if (targets.length === 0) return;
     let count = 0;
     let failed = 0;
-    setTogglingGroupKey(groupKey);
+    setTogglingGroupKey(busyKey);
     try {
       for (const skill of targets) {
         try {
@@ -1531,6 +1544,40 @@ export function MySkills() {
             })}
           </>
         )}
+        {/* With a tag picked in a preset, the shown skills can be switched in one go. */}
+        {viewedPreset && tagFilters.size > 0 && !isMultiSelect && (() => {
+          const toEnable = filtered.filter((skill) => !skill.preset_ids.includes(viewedPreset.id));
+          const toDisable = filtered.filter((skill) => skill.preset_ids.includes(viewedPreset.id));
+          const busy = togglingGroupKey !== null;
+          const buttonClass =
+            "inline-flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-0.5 text-[12px] font-medium text-secondary transition-colors hover:bg-surface-active disabled:opacity-40 disabled:hover:bg-surface-hover";
+          return (
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                disabled={busy || toEnable.length === 0}
+                onClick={() => handleSetSkillsInPreset(TAG_FILTER_TOGGLE_KEY, toEnable, true)}
+                title={t("mySkills.tagFilterEnableAllHint", { count: toEnable.length, preset: viewedPreset.name })}
+                className={buttonClass}
+              >
+                {togglingGroupKey === TAG_FILTER_TOGGLE_KEY
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <CheckCircle2 className="h-3 w-3" />}
+                {t("mySkills.tagFilterEnableAll", { count: toEnable.length })}
+              </button>
+              <button
+                type="button"
+                disabled={busy || toDisable.length === 0}
+                onClick={() => handleSetSkillsInPreset(TAG_FILTER_TOGGLE_KEY, toDisable, false)}
+                title={t("mySkills.tagFilterDisableAllHint", { count: toDisable.length, preset: viewedPreset.name })}
+                className={buttonClass}
+              >
+                <Circle className="h-3 w-3" />
+                {t("mySkills.tagFilterDisableAll", { count: toDisable.length })}
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {isMultiSelect && (

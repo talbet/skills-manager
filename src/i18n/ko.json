@@ -489,7 +489,11 @@
       "add": "프리셋"
     },
     "viewGrid": "카드 보기",
-    "viewList": "목록 보기"
+    "viewList": "목록 보기",
+    "tagFilterEnableAll": "모두 켜기 ({{count}})",
+    "tagFilterDisableAll": "모두 끄기 ({{count}})",
+    "tagFilterEnableAllHint": "표시된 스킬 중 꺼져 있는 {{count}}개를 {{preset}}에 넣기",
+    "tagFilterDisableAllHint": "표시된 스킬 {{count}}개를 {{preset}}에서 빼기"
   },
   "install": {
     "title": "스킬 설치",

@@ -489,7 +489,11 @@
       "updating": "Actualizando"
     },
     "viewDoc": "Ver documentos",
-    "viewUpdates": "Ver"
+    "viewUpdates": "Ver",
+    "tagFilterEnableAll": "Habilitar todos ({{count}})",
+    "tagFilterDisableAll": "Deshabilitar todos ({{count}})",
+    "tagFilterEnableAllHint": "Añadir a “{{preset}}” los {{count}} skills mostrados que están deshabilitados",
+    "tagFilterDisableAllHint": "Quitar de “{{preset}}” los {{count}} skills mostrados"
   },
   "install": {
     "all": "Histórico",

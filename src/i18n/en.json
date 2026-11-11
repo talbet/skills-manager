@@ -489,7 +489,11 @@
       "add": "Preset"
     },
     "viewGrid": "Card view",
-    "viewList": "List view"
+    "viewList": "List view",
+    "tagFilterEnableAll": "Enable all ({{count}})",
+    "tagFilterDisableAll": "Disable all ({{count}})",
+    "tagFilterEnableAllHint": "Add the {{count}} shown skills that are off to {{preset}}",
+    "tagFilterDisableAllHint": "Remove the {{count}} shown skills from {{preset}}"
   },
   "install": {
     "title": "Install Skills",

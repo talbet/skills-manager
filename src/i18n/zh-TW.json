@@ -489,7 +489,11 @@
       "add": "Preset"
     },
     "viewGrid": "卡片檢視",
-    "viewList": "清單檢視"
+    "viewList": "清單檢視",
+    "tagFilterEnableAll": "全部啟用（{{count}}）",
+    "tagFilterDisableAll": "全部停用（{{count}}）",
+    "tagFilterEnableAllHint": "將目前顯示中未啟用的 {{count}} 個 Skill 加入 {{preset}}",
+    "tagFilterDisableAllHint": "從 {{preset}} 移除目前顯示的 {{count}} 個 Skill"
   },
   "install": {
     "title": "安裝 Skills",

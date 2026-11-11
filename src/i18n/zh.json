@@ -489,7 +489,11 @@
       "add": "预设"
     },
     "viewGrid": "卡片视图",
-    "viewList": "列表视图"
+    "viewList": "列表视图",
+    "tagFilterEnableAll": "全部启用（{{count}}）",
+    "tagFilterDisableAll": "全部停用（{{count}}）",
+    "tagFilterEnableAllHint": "将当前显示中未启用的 {{count}} 个技能添加到 {{preset}}",
+    "tagFilterDisableAllHint": "从 {{preset}} 移除当前显示的 {{count}} 个技能"
   },
   "install": {
     "title": "安装 Skills",
