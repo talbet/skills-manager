@@ -468,6 +468,34 @@
       "apply": "同步 {{count}} 项",
       "noAgents": "没有已安装并启用的 Agent。",
       "allSynced": "选中的 Skill 都已同步到这个 Agent"
+    },
+    "rename": {
+      "action": "重命名文件夹",
+      "title": "重命名 Skill 文件夹",
+      "folderLabel": "文件夹名称",
+      "hint": "会同时重命名中央仓库中的文件夹，以及该 Skill 已部署到的各个 Agent 中的文件夹。Skill 的标题来自其 SKILL.md，不会改变。",
+      "invalid": "文件夹名称不能包含 / \\ : * ? \" < > |，也不能以点开头。",
+      "confirm": "重命名",
+      "done": "已重命名为 {{folder}}",
+      "partial_other": "已重命名，但有 {{count}} 个部署无法移动。下次同步时会以新名称重新部署。"
+    },
+    "lineage": {
+      "bannerTitle_other": "{{count}} 个导入的 Skill 与从来源安装的 Skill 相同",
+      "bannerDescription": "导入的 Skill 没有来源，因此无法获得更新。将它们关联到来源，只保留一份可更新的副本。",
+      "review": "查看",
+      "title": "将导入的 Skill 关联到来源",
+      "intro": "关联后会保留导入的 Skill（包括文件夹名称、标签、Preset 和 Agent 部署），为其设置来源以便检查更新，并移除重复的副本。",
+      "none": "没有需要关联的 Skill。",
+      "kind": {
+        "import": "导入",
+        "local": "本地"
+      },
+      "identical": "与 {{folder}} 内容相同，Skill 内容不会改变。",
+      "differs": "与 {{folder}} 内容不同。将使用来源版本替换，当前副本会移动到中央仓库的 kept-copies/merged 中。",
+      "dismiss": "不是同一个 Skill",
+      "link": "关联",
+      "linked": "{{name}} 已关联到来源",
+      "linkedReplaced": "{{name}} 已关联到来源。之前的副本已移动到："
     }
   },
   "install": {
@@ -515,7 +543,8 @@
       "done": "完成",
       "cancelled": "安装已取消",
       "timeout": "安装超时 — 请检查网络连接",
-      "view": "查看"
+      "view": "查看",
+      "lineageMatch_other": "已有 {{count}} 个导入的 Skill 与刚安装的 Skill 相同（例如 {{name}}）。将其关联到来源，只保留一份可更新的副本。"
     },
     "local": {
       "title": "导入本地 Skill 源",

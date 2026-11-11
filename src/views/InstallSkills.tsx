@@ -32,6 +32,7 @@ import type { ScanResult, SkillsShSkill, BatchImportResult, GitPreviewResult } f
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { newLineageDuplicates } from "../lib/skillLineage";
 import { listen } from "@tauri-apps/api/event";
 import { StatusBanner } from "../components/StatusBanner";
 import { getErrorMessage, getErrorKind } from "../lib/error";
@@ -49,6 +50,24 @@ export function InstallSkills() {
   const { t } = useTranslation();
   const { refreshPresets, refreshManagedSkills, managedSkills, openSkillDetailById } = useApp();
   const navigate = useNavigate();
+
+  // An install that duplicated an imported skill (`pdf` imported, `pdf-2`
+  // from skills.sh) was most likely meant to give that skill a source. Offer
+  // to link them rather than leave two copies.
+  const offerLineageLink = async (knownSkillIds: Set<string>) => {
+    const found = await newLineageDuplicates(knownSkillIds);
+    if (found.length === 0) return;
+    toast.info(
+      t("install.toast.lineageMatch", { count: found.length, name: found[0].keep.name }),
+      {
+        duration: 12000,
+        action: {
+          label: t("mySkills.lineage.review"),
+          onClick: () => navigate("/my-skills", { state: { openLineage: true } }),
+        },
+      }
+    );
+  };
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"market" | "local" | "git">("market");
   const [marketTab, setMarketTab] = useState<"hot" | "trending" | "alltime">("alltime");
@@ -445,8 +464,10 @@ export function InstallSkills() {
           }
         }
       );
+      const knownSkillIds = new Set(managedSkills.map((s) => s.id));
       await api.installFromSkillssh(skill.source, skill.skill_id);
       await Promise.all([refreshPresets(), refreshManagedSkills()]);
+      void offerLineageLink(knownSkillIds);
       toast.success(t("install.toast.success", { name: displayName }), {
         id: toastId,
         action: {
@@ -536,6 +557,7 @@ export function InstallSkills() {
     if (selected.length === 0) return;
     setGitConfirmLoading(true);
     try {
+      const knownSkillIds = new Set(managedSkills.map((s) => s.id));
       await api.confirmGitInstall(
         repoUrl,
         gitPreview.temp_dir,
@@ -543,6 +565,7 @@ export function InstallSkills() {
       );
       await Promise.all([refreshPresets(), refreshManagedSkills()]);
       toast.success(t("install.toast.success", { name: selected.map((s) => s.name).join(", ") }));
+      void offerLineageLink(knownSkillIds);
       setGitUrl("");
       setGitPreview(null);
       setGitPreviewRepoUrl(null);

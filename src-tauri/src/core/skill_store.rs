@@ -433,6 +433,18 @@ impl SkillStore {
         Ok(())
     }
 
+    /// Move a record to a renamed library folder. Only the location and the
+    /// display name change; source lineage, hash and status are untouched.
+    pub fn update_skill_location(&self, id: &str, name: &str, central_path: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        conn.execute(
+            "UPDATE skills SET name = ?1, central_path = ?2, updated_at = ?3 WHERE id = ?4",
+            params![name, central_path, now, id],
+        )?;
+        Ok(())
+    }
+
     /// Park every skill's `central_path` on a unique placeholder before a
     /// reindex rewrites them. Path reassignments between existing skills
     /// (renames, collision reshuffles after a merge) would otherwise collide

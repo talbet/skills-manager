@@ -267,6 +267,49 @@ export interface InstallLocalResult {
 export const deleteManagedSkills = (skillIds: string[]) =>
   invoke<BatchDeleteSkillsResult>("delete_managed_skills", { skillIds });
 
+export interface RenameSkillResult {
+  skill_id: string;
+  name: string;
+  folder: string;
+  central_path: string;
+  /** Deployments that could not be moved; the next sync redeploys them under the new name. */
+  redeploy_failures: string[];
+}
+
+/** Rename a skill's library folder and move its agent deployments with it. */
+export const renameManagedSkill = (skillId: string, newFolder: string) =>
+  invoke<RenameSkillResult>("rename_managed_skill", { skillId, newFolder });
+
+export interface LineageSkillSummary {
+  id: string;
+  name: string;
+  folder: string;
+  source_type: string;
+  source_ref: string | null;
+}
+
+/** An unattributed skill (imported or local) and a source-backed skill that looks like the same one. */
+export interface LineageDuplicate {
+  keep: LineageSkillSummary;
+  source: LineageSkillSummary;
+  content_identical: boolean;
+}
+
+export interface MergeLineageResult {
+  skill_id: string;
+  name: string;
+  source_type: string;
+  content_changed: boolean;
+  previous_content_path: string | null;
+}
+
+export const findLineageDuplicates = () =>
+  invoke<LineageDuplicate[]>("find_lineage_duplicates");
+
+/** Give `keepId` the source and content of `sourceId`, then remove `sourceId`. */
+export const mergeSkillLineage = (keepId: string, sourceId: string) =>
+  invoke<MergeLineageResult>("merge_skill_lineage", { keepId, sourceId });
+
 export const installLocal = (sourcePath: string, name?: string) =>
   invoke<InstallLocalResult>("install_local", { sourcePath, name: name || null });
 
