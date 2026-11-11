@@ -10,9 +10,6 @@ import {
   Layers,
   RefreshCw,
   RotateCcw,
-  GitBranch,
-  ArrowUpCircle,
-  Wrench,
   Loader2,
   X,
   Plus,
@@ -28,7 +25,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { viewedPresetIdFrom } from "../lib/presetRoute";
+import { getPresetIconOption } from "../lib/presetIcons";
+import { MembershipPopover } from "../components/MembershipPopover";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { cn } from "../utils";
@@ -49,7 +49,6 @@ import { getTagActiveColor, getTagColor, pruneStaleTagFilters, UNTAGGED_FILTER }
 import type {
   ManagedSkill,
   ToolInfo,
-  GitBackupStatus,
   SkillToolToggle,
 } from "../lib/tauri";
 import { getErrorMessage } from "../lib/error";
@@ -86,17 +85,23 @@ interface SortableSkillItemProps {
   id: string;
   disabled: boolean;
   className?: string;
-  /** Overrides the handle styling (grid cards render it inside the status-dot slot). */
-  handleClassName?: string;
+  /** Positions the handle against the card's left edge ("card" tops it on the heading; "row" centres it). */
+  handlePlacement: "card" | "row";
   handleTitle?: string;
   children: (dragHandle: React.ReactNode) => React.ReactNode;
 }
 
+/**
+ * A sortable card. Its grip hangs over the card's left edge and only appears
+ * on hover or focus, so it takes no space from the heading when the user is
+ * not reordering. The grip carries dnd-kit's attributes and listeners, which
+ * makes it the one keyboard-sortable stop (Space to lift, arrows to move).
+ */
 function SortableSkillItem({
   id,
   disabled,
   className,
-  handleClassName,
+  handlePlacement,
   handleTitle,
   children,
 }: SortableSkillItemProps) {
@@ -117,22 +122,26 @@ function SortableSkillItem({
   };
 
   const handle = !disabled ? (
-    <div
+    <button
+      type="button"
       ref={setActivatorNodeRef}
+      {...attributes}
       {...listeners}
       onClick={(e) => e.stopPropagation()}
       title={handleTitle}
-      className={
-        handleClassName ??
-        "flex cursor-grab items-center justify-center rounded-md p-1 text-faint transition-colors hover:bg-surface-hover hover:text-muted active:cursor-grabbing"
-      }
+      aria-label={handleTitle}
+      className={cn(
+        "absolute -left-2.5 z-10 flex h-6 w-5 cursor-grab items-center justify-center rounded-md border border-border bg-surface text-faint shadow-sm outline-none transition-opacity hover:bg-surface-hover hover:text-muted focus-visible:opacity-100 active:cursor-grabbing",
+        handlePlacement === "card" ? "top-2.5" : "top-1/2 -translate-y-1/2",
+        isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+      )}
     >
-      <GripVertical className="h-4 w-4" />
-    </div>
+      <GripVertical className="h-3.5 w-3.5" />
+    </button>
   ) : null;
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} className={cn("h-full", className)}>
+    <div ref={setNodeRef} style={style} className={cn("h-full", className)}>
       {children(handle)}
     </div>
   );
@@ -157,8 +166,9 @@ type SkillListRow =
 export function MySkills() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const {
-    viewedPreset,
+    presets,
     tools,
     managedSkills: skills,
     refreshPresets,
@@ -203,17 +213,17 @@ export function MySkills() {
   const [toolToggles, setToolToggles] = useState<SkillToolToggle[] | null>(null);
   const [togglingToolKey, setTogglingToolKey] = useState<string | null>(null);
   const [togglingTarget, setTogglingTarget] = useState<{ skillId: string; tool: string } | null>(null);
-  const [gitStatus, setGitStatus] = useState<GitBackupStatus | null>(null);
-  const [gitRemoteConfig, setGitRemoteConfig] = useState("");
-  const [tagEditSkillId, setTagEditSkillId] = useState<string | null>(null);
   const [menuSkillId, setMenuSkillId] = useState<string | null>(null);
   const [skillToDelete, setSkillToDelete] = useState<ManagedSkill | null>(null);
-  const [tagInput, setTagInput] = useState("");
-  const tagInputRef = useRef<HTMLInputElement>(null);
 
   const [presetSkillOrder, setPresetSkillOrder] = useState<string[]>([]);
 
-  const viewedPresetName = viewedPreset?.name || t("mySkills.currentPresetFallback");
+  // `/my-skills` is the whole Library; `?preset=<id>` scopes it to one preset.
+  const viewedPresetId = viewedPresetIdFrom(location.pathname, location.search);
+  const viewedPreset = useMemo(
+    () => presets.find((preset) => preset.id === viewedPresetId) ?? null,
+    [presets, viewedPresetId]
+  );
 
   // Fetch sort order whenever active preset changes
   useEffect(() => {
@@ -469,64 +479,6 @@ export function MySkills() {
   // Grouped order is source order, not the preset's order, so dragging would
   // move a skill to a position the user cannot see.
   const canDrag = !!viewedPreset && !groupBySource;
-
-  const refreshGitStatus = useCallback(async () => {
-    try {
-      await api.gitBackupFetch().catch(() => {});
-      const status = await api.gitBackupStatus();
-      setGitStatus(status);
-    } catch {
-      // not critical
-    }
-  }, []);
-
-  // Local-only status refresh: no `git fetch`, so it can fire from
-  // dependency-driven effects without driving the file-watcher → refresh
-  // → fetch feedback loop.
-  const refreshGitStatusLocal = useCallback(async () => {
-    try {
-      const status = await api.gitBackupStatus();
-      setGitStatus(status);
-    } catch {
-      // not critical
-    }
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      const savedRemote = (await api.getSettings("git_backup_remote_url").catch(() => null))?.trim() || "";
-      const status = await api.gitBackupStatus().catch(() => null);
-      setGitStatus(status);
-      // The saved setting is the single source of truth. Do not backfill from
-      // `.git/config` — that made a cleared URL reappear after disconnect (#260).
-      setGitRemoteConfig(savedRemote);
-    })();
-  }, []);
-
-  useEffect(() => {
-    const handleWindowFocus = () => {
-      refreshGitStatus();
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        refreshGitStatus();
-      }
-    };
-
-    window.addEventListener("focus", handleWindowFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      window.removeEventListener("focus", handleWindowFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [refreshGitStatus]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      refreshGitStatusLocal();
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [skills, refreshGitStatusLocal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1002,32 +954,57 @@ export function MySkills() {
     }
   };
 
-  const handleAddTag = async (skill: ManagedSkill, inputValue?: string) => {
-    const trimmed = (inputValue ?? tagInput).trim();
-    if (!trimmed || skill.tags.includes(trimmed)) {
-      setTagInput("");
-      return;
-    }
-    try {
-      await api.setSkillTags(skill.id, [...skill.tags, trimmed]);
-      toast.success(t("mySkills.tags.tagAdded"));
-      setTagEditSkillId(null);
-      setTagInput("");
-      await refreshManagedSkills();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, t("common.error")));
-    }
+  // Tag and preset edits from the membership popovers run one at a time, in
+  // order: a tag write sends the whole set, so two quick toggles must not race.
+  // The library refreshes once, when the popover closes.
+  const membershipWritesRef = useRef<Promise<void>>(Promise.resolve());
+  const membershipDirtyRef = useRef({ tags: false, presets: false });
+
+  const queueMembershipWrite = (kind: "tags" | "presets", write: () => Promise<unknown>) => {
+    membershipDirtyRef.current[kind] = true;
+    membershipWritesRef.current = membershipWritesRef.current
+      .then(write)
+      .then(
+        () => undefined,
+        (error: unknown) => {
+          toast.error(getErrorMessage(error, t("common.error")));
+        }
+      );
   };
 
-  const handleRemoveTag = async (skill: ManagedSkill, tagToRemove: string) => {
-    try {
-      await api.setSkillTags(skill.id, skill.tags.filter((t) => t !== tagToRemove));
-      toast.success(t("mySkills.tags.tagsUpdated"));
-      await refreshManagedSkills();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, t("common.error")));
-    }
+  const handleMembershipPopoverOpenChange = (skillId: string, open: boolean) => {
+    setMenuSkillId((current) => (open ? skillId : current === skillId ? null : current));
+    if (open) return;
+    const dirty = membershipDirtyRef.current;
+    if (!dirty.tags && !dirty.presets) return;
+    const withPresets = dirty.presets;
+    membershipDirtyRef.current = { tags: false, presets: false };
+    const written = pendingTags[skillId];
+    membershipWritesRef.current = membershipWritesRef.current.then(async () => {
+      await Promise.all([refreshManagedSkills(), withPresets ? refreshPresets() : Promise.resolve()]);
+      // Keep a set a later edit replaced; that edit's own refresh clears it.
+      setPendingTags((prev) => {
+        if (!(skillId in prev) || prev[skillId] !== written) return prev;
+        const rest = { ...prev };
+        delete rest[skillId];
+        return rest;
+      });
+    });
   };
+
+  // The newest tag set per skill until the refresh after it lands, so a popover
+  // reopened in between starts from what was written, not from stale props.
+  const [pendingTags, setPendingTags] = useState<Record<string, string[]>>({});
+
+  const handleSkillTagsChange = (skill: ManagedSkill, next: string[]) => {
+    setPendingTags((prev) => ({ ...prev, [skill.id]: next }));
+    queueMembershipWrite("tags", () => api.setSkillTags(skill.id, next));
+  };
+
+  const handleSkillPresetChange = (skill: ManagedSkill, presetId: string, checked: boolean) =>
+    queueMembershipWrite("presets", () =>
+      checked ? api.addSkillToPreset(skill.id, presetId) : api.removeSkillFromPreset(skill.id, presetId)
+    );
 
   // Replace `oldTag` with `newTag` in the active filter set so the current
   // filtering survives a rename/delete.
@@ -1069,85 +1046,6 @@ export function MySkills() {
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, t("common.error")));
     }
-  };
-
-  const getTagOptions = (skill: ManagedSkill, keyword: string) => {
-    const needle = keyword.trim().toLowerCase();
-    return allTags.filter((tag) => {
-      if (skill.tags.includes(tag)) return false;
-      if (!needle) return true;
-      return tag.toLowerCase().includes(needle);
-    });
-  };
-
-  type GitToolbarMode =
-    | "loading"
-    | "uninitialized"
-    | "needs_remote"
-    | "needs_fix"
-    | "up_to_date"
-    | "pending_changes";
-
-  const getGitToolbarMode = (): GitToolbarMode => {
-    if (!gitStatus) return "loading";
-    if (!gitStatus.is_repo) return "uninitialized";
-    if (!gitStatus.remote_url && !gitRemoteConfig) return "needs_remote";
-    if (
-      gitStatus.upstream_health === "unrelated_histories"
-      || gitStatus.upstream_health === "detached"
-    ) {
-      return "needs_fix";
-    }
-    // First-push case: remote is set but upstream tracking is not yet established.
-    // Treat as a normal pending sync — the push path will set upstream automatically.
-    if (gitStatus.upstream_health === "no_upstream") {
-      return "pending_changes";
-    }
-    if (gitStatus.has_changes || gitStatus.ahead > 0 || gitStatus.behind > 0) {
-      return "pending_changes";
-    }
-    return "up_to_date";
-  };
-
-  const getGitStatusMeta = (mode: GitToolbarMode) => {
-    if (mode === "loading") {
-      return {
-        icon: Loader2,
-        label: t("backup.status.loading"),
-        className: "text-muted",
-        iconClassName: "animate-spin",
-      };
-    }
-    if (mode === "uninitialized" || mode === "needs_remote") {
-      return {
-        icon: GitBranch,
-        label: t("backup.status.notConnected"),
-        className: "text-muted",
-        iconClassName: "",
-      };
-    }
-    if (mode === "needs_fix") {
-      return {
-        icon: Wrench,
-        label: t("backup.status.needsFix"),
-        className: "text-red-500",
-        iconClassName: "",
-      };
-    }
-    if (mode === "pending_changes") {
-      return {
-        icon: ArrowUpCircle,
-        label: t("backup.status.pending"),
-        className: "text-amber-600 dark:text-amber-400",
-        iconClassName: "",
-      };
-    }
-    return {
-      icon: CheckCircle2,
-      label: t("backup.status.synced"),
-      className: "text-muted",
-      iconClassName: "",
-    };
   };
 
   const sourceIcon = (type: string) => {
@@ -1201,6 +1099,157 @@ export function MySkills() {
       ? t("mySkills.updateActions.reimport")
       : t("mySkills.updateActions.update");
 
+  const tagItems = useMemo(() => allTags.map((tag) => ({ id: tag, label: tag })), [allTags]);
+  const presetItems = useMemo(
+    () =>
+      presets.map((preset) => {
+        const option = getPresetIconOption(preset);
+        const Icon = option.icon;
+        return {
+          id: preset.id,
+          label: preset.name,
+          icon: <Icon className={cn("h-3.5 w-3.5 shrink-0", option.colorClass)} />,
+        };
+      }),
+    [presets]
+  );
+
+  /** The multi-select checkbox, in the slot the drag grip uses outside selection. */
+  const renderSelectionMark = (skillId: string, placement: "card" | "row") => {
+    const selected = selectedIds.has(skillId);
+    return (
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute -left-2.5 z-10 flex h-5 w-5 items-center justify-center rounded-md border bg-surface shadow-sm",
+          placement === "card" ? "top-3" : "top-1/2 -translate-y-1/2",
+          selected ? "border-accent/40" : "border-border"
+        )}
+      >
+        {selected
+          ? <SquareCheck className="h-3.5 w-3.5 text-accent" />
+          : <Square className="h-3.5 w-3.5 text-faint" />}
+      </span>
+    );
+  };
+
+  /**
+   * The tag editor trigger. A skill with no tags shows a dashed "+ Tag" slot,
+   * so the first tag is as discoverable as the rest; a tagged skill shows its
+   * pills and a quiet "+" that opens the same editor.
+   */
+  const renderTagsControl = (skill: ManagedSkill, variant: "card" | "row") => {
+    const pills = variant === "row" ? skill.tags.slice(0, 2) : skill.tags;
+    const overflow = skill.tags.length - pills.length;
+    return (
+      <MembershipPopover
+        items={tagItems}
+        selected={pendingTags[skill.id] ?? skill.tags}
+        onChange={(next) => handleSkillTagsChange(skill, next)}
+        onOpenChange={(open) => handleMembershipPopoverOpenChange(skill.id, open)}
+        allowCreate
+        disabled={isMultiSelect}
+        label={t("mySkills.tags.manage")}
+        searchPlaceholder={t("mySkills.tags.searchOrCreate")}
+        emptyLabel={t("mySkills.tags.noMatch")}
+        createLabel={(name) => t("mySkills.tags.create", { name })}
+        triggerClassName={cn(
+          "group/tags inline-flex min-w-0 max-w-full flex-wrap items-center gap-1 rounded-full text-left",
+          variant === "row" && "flex-nowrap"
+        )}
+      >
+        {pills.map((tag) => (
+          <span
+            key={tag}
+            className={cn(
+              "inline-flex max-w-[120px] items-center truncate rounded-full px-2 py-0.5 text-[11px] font-medium",
+              getTagColor(tag, allTags)
+            )}
+          >
+            {tag}
+          </span>
+        ))}
+        {overflow > 0 && (
+          <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-[11px] font-medium text-muted">
+            +{overflow}
+          </span>
+        )}
+        {skill.tags.length === 0 ? (
+          <span
+            className={cn(
+              "inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] font-medium text-muted transition-colors group-hover/tags:border-accent-border group-hover/tags:text-secondary",
+              variant === "row" && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            )}
+          >
+            <Plus className="h-2.5 w-2.5" />
+            {t("mySkills.tags.addFirst")}
+          </span>
+        ) : variant === "card" ? (
+          <span className="inline-flex h-[18px] items-center rounded-full px-1 text-faint transition-colors group-hover:text-muted group-hover/tags:text-secondary">
+            <Plus className="h-3 w-3" />
+          </span>
+        ) : null}
+      </MembershipPopover>
+    );
+  };
+
+  /** Which presets a skill belongs to, editable in place. */
+  const renderPresetsControl = (skill: ManagedSkill, variant: "card" | "row") => {
+    const memberPresets = presets.filter((preset) => skill.preset_ids.includes(preset.id));
+    // The viewed preset leads, so the chip answers "is it in this one?" first.
+    const lead =
+      memberPresets.find((preset) => preset.id === viewedPreset?.id) ?? memberPresets[0] ?? null;
+    const leadIcon = lead ? getPresetIconOption(lead) : null;
+    const LeadIcon = leadIcon?.icon;
+    if (presets.length === 0) return null;
+    return (
+      <MembershipPopover
+        items={presetItems}
+        selected={skill.preset_ids}
+        onChange={(_next, presetId, checked) => handleSkillPresetChange(skill, presetId, checked)}
+        onOpenChange={(open) => handleMembershipPopoverOpenChange(skill.id, open)}
+        disabled={isMultiSelect}
+        label={
+          memberPresets.length > 0
+            ? t("mySkills.presets.manageWith", { presets: memberPresets.map((p) => p.name).join(", ") })
+            : t("mySkills.presets.manage")
+        }
+        searchPlaceholder={t("mySkills.presets.search")}
+        emptyLabel={t("mySkills.presets.none")}
+        triggerClassName="group/presets inline-flex min-w-0 shrink items-center gap-1 rounded-full"
+      >
+        {lead && LeadIcon ? (
+          <>
+            <span
+              className={cn(
+                "inline-flex min-w-0 items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 font-medium text-secondary transition-colors group-hover/presets:bg-surface-active",
+                variant === "row" ? "max-w-[140px] text-[12px]" : "max-w-[160px] text-[12px]"
+              )}
+            >
+              <LeadIcon className={cn("h-3 w-3 shrink-0", leadIcon.colorClass)} />
+              <span className="truncate">{lead.name}</span>
+            </span>
+            {memberPresets.length > 1 && (
+              <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-[11px] font-medium text-muted">
+                +{memberPresets.length - 1}
+              </span>
+            )}
+          </>
+        ) : (
+          <span
+            className={cn(
+              "inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] font-medium text-muted transition-colors group-hover/presets:border-accent-border group-hover/presets:text-secondary",
+              variant === "row" && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            )}
+          >
+            <Plus className="h-2.5 w-2.5" />
+            {t("mySkills.presets.add")}
+          </span>
+        )}
+      </MembershipPopover>
+    );
+  };
+
   const statusBadge = (skill: ManagedSkill) => {
     if (skill.update_status === "update_available") {
       return {
@@ -1225,14 +1274,30 @@ export function MySkills() {
 
   return (
     <div className="app-page">
-      <div className="app-page-header pr-2 pb-1 flex items-center justify-between gap-3">
-        <h1 className="app-page-title flex items-center gap-2">
-          {t("mySkills.title")}
-          <span className="app-badge">
-            {skills.length}
-          </span>
-        </h1>
-
+      <div className="app-page-header pr-2 pb-1">
+        {viewedPreset ? (
+          <>
+            <h1 className="app-page-title flex items-center gap-2">
+              {(() => {
+                const option = getPresetIconOption(viewedPreset);
+                const Icon = option.icon;
+                return <Icon className={cn("h-4 w-4 shrink-0", option.colorClass)} aria-hidden="true" />;
+              })()}
+              <span className="truncate">{viewedPreset.name}</span>
+              <span className="app-badge">{viewedPreset.skill_count}</span>
+            </h1>
+            <p className="app-page-subtitle">
+              {t("mySkills.presetSubtitle", { count: viewedPreset.skill_count, total: skills.length })}
+            </p>
+          </>
+        ) : (
+          <h1 className="app-page-title flex items-center gap-2">
+            {t("mySkills.title")}
+            <span className="app-badge">
+              {skills.length}
+            </span>
+          </h1>
+        )}
       </div>
 
       <div className="app-toolbar">
@@ -1251,6 +1316,7 @@ export function MySkills() {
             />
           </div>
 
+          {viewedPreset && (
           <div className="app-segmented app-toolbar-segmented shrink-0">
             {(["all", "enabled", "available"] as const).map((mode) => (
               <button
@@ -1265,35 +1331,17 @@ export function MySkills() {
               </button>
             ))}
           </div>
+          )}
 
         </div>
 
         {/* Keep all library actions in one toolbar so they wrap together. */}
         <div className="flex items-center gap-3">
           <div className="app-segmented app-toolbar-segmented shrink-0">
-            {(() => {
-              const mode = getGitToolbarMode();
-              const meta = getGitStatusMeta(mode);
-              const Icon = meta.icon;
-              return (
-                <button
-                  type="button"
-                  onClick={() => navigate("/backup")}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium transition-colors hover:bg-surface-hover hover:text-secondary",
-                    meta.className
-                  )}
-                  title={t("sidebar.backup")}
-                >
-                  <Icon className={cn("h-3.5 w-3.5", meta.iconClassName)} />
-                  {meta.label}
-                </button>
-              );
-            })()}
             <button
               onClick={handleCheckAllUpdates}
               disabled={checkingAll}
-              className="ml-2 mr-2 inline-flex items-center gap-1 rounded-md border-l border-border-subtle pl-4 pr-3 py-2 text-[13px] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
+              className="mr-2 inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-muted transition-colors hover:bg-surface-hover hover:text-secondary disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", checkingAll && "animate-spin")} />
               {t("mySkills.updateActions.checkAll")}
@@ -1309,6 +1357,9 @@ export function MySkills() {
             <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 self-center bg-border-subtle" />
             <button
               onClick={() => setViewMode("grid")}
+              aria-pressed={viewMode === "grid"}
+              aria-label={t("mySkills.viewGrid")}
+              title={t("mySkills.viewGrid")}
               className={cn(
                 "rounded-md p-2 transition-colors outline-none",
                 viewMode === "grid" ? "bg-surface-active text-secondary" : "text-muted hover:text-tertiary"
@@ -1318,6 +1369,9 @@ export function MySkills() {
             </button>
             <button
               onClick={() => setViewMode("list")}
+              aria-pressed={viewMode === "list"}
+              aria-label={t("mySkills.viewList")}
+              title={t("mySkills.viewList")}
               className={cn(
                 "rounded-md p-2 transition-colors outline-none",
                 viewMode === "list" ? "bg-surface-active text-secondary" : "text-muted hover:text-tertiary"
@@ -1601,8 +1655,8 @@ export function MySkills() {
                         onChange={() => handleToggleGroupInPreset(section.key, members)}
                         title={
                           allEnabled
-                            ? t("mySkills.groupDisableAll", { preset: viewedPresetName })
-                            : t("mySkills.groupEnableAll", { preset: viewedPresetName })
+                            ? t("mySkills.groupDisableAll", { preset: viewedPreset.name })
+                            : t("mySkills.groupEnableAll", { preset: viewedPreset.name })
                         }
                       />
                     ) : null
@@ -1631,19 +1685,15 @@ export function MySkills() {
                 <SortableSkillItem
                   key={skill.id}
                   id={skill.id}
-                  disabled={!canDrag}
-                  className={
-                    tagEditSkillId === skill.id || menuSkillId === skill.id
-                      ? "relative z-30"
-                      : undefined
-                  }
+                  disabled={!canDrag || !enabledInPreset}
+                  className={menuSkillId === skill.id ? "relative z-30" : undefined}
+                  handlePlacement="card"
                   handleTitle={t("mySkills.dragToReorder")}
-                  handleClassName="absolute inset-0 flex cursor-grab items-center justify-center rounded-md text-faint opacity-0 transition-opacity hover:text-muted group-hover:opacity-100 active:cursor-grabbing"
                 >
                 {(dragHandle) => (
                 <div
                   className={cn(
-                    "app-panel group relative flex h-full cursor-pointer flex-col shadow-card transition-all hover:-translate-y-px hover:border-border hover:shadow-card-hover",
+                    "app-panel group relative flex h-full cursor-pointer flex-col shadow-card transition-[transform,box-shadow,border-color] hover:-translate-y-px hover:border-border hover:shadow-card-hover",
                     isMultiSelect && selectedIds.has(skill.id) && "ring-1 ring-accent border-accent/40"
                   )}
                   onClick={() =>
@@ -1655,30 +1705,9 @@ export function MySkills() {
                       <Loader2 className="h-5 w-5 animate-spin text-muted" />
                     </div>
                   )}
+                  {isMultiSelect ? renderSelectionMark(skill.id, "card") : dragHandle}
 
                   <div className="flex items-center gap-2.5 px-3.5 pt-3 pb-1.5">
-                    {/* Fixed-width slot: status dot / drag handle on hover / checkbox in multi-select */}
-                    <div className="relative flex h-4 w-4 shrink-0 items-center justify-center">
-                      {isMultiSelect ? (
-                        selectedIds.has(skill.id)
-                          ? <SquareCheck className="h-3.5 w-3.5 text-accent" />
-                          : <Square className="h-3.5 w-3.5 text-faint" />
-                      ) : (
-                        <>
-                          <span
-                            className={cn(
-                              "h-2 w-2 rounded-full transition-opacity",
-                              canDrag && "group-hover:opacity-0",
-                              enabledInPreset
-                                ? "bg-accent-light shadow-[0_0_0_3px_var(--color-accent-bg)]"
-                                : "bg-surface-active"
-                            )}
-                            title={enabledInPreset ? t("mySkills.enabledButton") : t("mySkills.notInPreset")}
-                          />
-                          {dragHandle}
-                        </>
-                      )}
-                    </div>
                     <SkillAvatar url={getSkillSourceInfo(skill).avatarUrl} />
                     <h3
                       className="flex-1 truncate text-[14px] font-semibold text-primary group-hover:text-accent-light"
@@ -1734,12 +1763,13 @@ export function MySkills() {
                             },
                           ]}
                         />
-                        <ToggleSwitch
-                          checked={enabledInPreset}
-                          disabled={!viewedPreset}
-                          onChange={() => handleTogglePreset(skill)}
-                          title={enabledInPreset ? t("mySkills.enabledButton") : t("mySkills.enable")}
-                        />
+                        {viewedPreset && (
+                          <ToggleSwitch
+                            checked={enabledInPreset}
+                            onChange={() => handleTogglePreset(skill)}
+                            title={t(enabledInPreset ? "mySkills.disableInPreset" : "mySkills.enableInPreset", { preset: viewedPreset.name })}
+                          />
+                        )}
                       </>
                     )}
                   </div>
@@ -1789,73 +1819,8 @@ export function MySkills() {
                         )}
                       </div>
                     )}
-                    <div className="mt-2 flex flex-wrap items-center gap-1">
-                      {skill.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className={cn(
-                            "group/tag inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                            getTagColor(tag, allTags)
-                          )}
-                        >
-                          {tag}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleRemoveTag(skill, tag); }}
-                            className="hidden group-hover/tag:inline-flex rounded-full p-0 opacity-60 hover:opacity-100"
-                          >
-                            <X className="h-2.5 w-2.5" />
-                          </button>
-                        </span>
-                      ))}
-                      {tagEditSkillId === skill.id ? (
-                        <div className="relative" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            ref={tagInputRef}
-                            type="text"
-                            value={tagInput}
-                            onChange={(e) => setTagInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") { handleAddTag(skill); }
-                              if (e.key === "Escape") { setTagEditSkillId(null); setTagInput(""); }
-                            }}
-                            onBlur={() => {
-                              if (tagInput.trim()) handleAddTag(skill);
-                              else { setTagEditSkillId(null); setTagInput(""); }
-                            }}
-                            placeholder={t("mySkills.tags.addTag")}
-                            className="h-5 w-28 rounded-full border border-border-subtle bg-transparent px-1.5 text-[11px] text-secondary outline-none focus:border-accent"
-                            autoCapitalize="none"
-                            autoCorrect="off"
-                            autoComplete="off"
-                            spellCheck={false}
-                            autoFocus
-                          />
-                          {getTagOptions(skill, tagInput).length > 0 && (
-                            <div className="absolute left-0 top-6 z-50 max-h-56 min-w-[112px] max-w-[180px] overflow-y-auto rounded-md border border-border-subtle bg-surface p-1 shadow-lg">
-                              {getTagOptions(skill, tagInput).map((tagOption) => (
-                                <button
-                                  key={tagOption}
-                                  type="button"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={(e) => { e.stopPropagation(); handleAddTag(skill, tagOption); }}
-                                  className="w-full truncate rounded-md px-1.5 py-1 text-left text-[11px] text-secondary hover:bg-surface-hover"
-                                  title={tagOption}
-                                >
-                                  {tagOption}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setTagEditSkillId(skill.id); setTagInput(""); }}
-                          className="inline-flex items-center rounded-full p-0.5 text-faint transition-colors hover:text-muted opacity-0 group-hover:opacity-100"
-                          title={t("mySkills.tags.addTag")}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
-                      )}
+                    <div className="mt-2 flex">
+                      {renderTagsControl(skill, "card")}
                     </div>
                   </div>
 
@@ -1865,14 +1830,7 @@ export function MySkills() {
                         {sourceIcon(skill.source_type)}
                         {sourceTypeLabel(skill)}
                       </span>
-                      {enabledInPreset && (
-                        <>
-                          <span className="text-faint">·</span>
-                          <span className="truncate text-[12px] font-medium text-amber-600 dark:text-amber-400/80">
-                            {viewedPresetName}
-                          </span>
-                        </>
-                      )}
+                      {renderPresetsControl(skill, "card")}
                     </div>
                     <SyncDots
                       className="shrink-0"
@@ -1897,15 +1855,15 @@ export function MySkills() {
               <SortableSkillItem
                 key={skill.id}
                 id={skill.id}
-                disabled={!canDrag}
+                disabled={!canDrag || !enabledInPreset}
                 className={menuSkillId === skill.id ? "relative z-30" : undefined}
+                handlePlacement="row"
                 handleTitle={t("mySkills.dragToReorder")}
-                handleClassName="absolute inset-0 flex cursor-grab items-center justify-center rounded-md text-faint opacity-0 transition-opacity hover:text-muted group-hover:opacity-100 active:cursor-grabbing"
               >
               {(dragHandle) => (
               <div
                 className={cn(
-                  "app-panel group relative flex cursor-pointer items-center gap-3.5 rounded-xl border-transparent px-3.5 py-3 transition-all hover:border-border hover:bg-surface-hover",
+                  "app-panel group relative flex cursor-pointer items-center gap-3.5 rounded-xl border-transparent px-3.5 py-3 transition-colors hover:border-border hover:bg-surface-hover",
                   isMultiSelect && selectedIds.has(skill.id) && "ring-1 ring-accent border-accent/40"
                 )}
                 onClick={() =>
@@ -1917,28 +1875,7 @@ export function MySkills() {
                     <Loader2 className="h-5 w-5 animate-spin text-muted" />
                   </div>
                 )}
-                {/* Same fixed slot as the grid card: status dot / drag handle / checkbox */}
-                <div className="relative flex h-4 w-4 shrink-0 items-center justify-center">
-                  {isMultiSelect ? (
-                    selectedIds.has(skill.id)
-                      ? <SquareCheck className="h-3.5 w-3.5 text-accent" />
-                      : <Square className="h-3.5 w-3.5 text-faint" />
-                  ) : (
-                    <>
-                      <span
-                        className={cn(
-                          "h-2 w-2 rounded-full transition-opacity",
-                          canDrag && "group-hover:opacity-0",
-                          enabledInPreset
-                            ? "bg-accent-light shadow-[0_0_0_3px_var(--color-accent-bg)]"
-                            : "bg-surface-active"
-                        )}
-                        title={enabledInPreset ? t("mySkills.enabledButton") : t("mySkills.notInPreset")}
-                      />
-                      {dragHandle}
-                    </>
-                  )}
-                </div>
+                {isMultiSelect ? renderSelectionMark(skill.id, "row") : dragHandle}
 
                 <h3
                   className="flex w-[180px] shrink-0 items-center gap-2 text-[14px] font-semibold text-secondary group-hover:text-primary"
@@ -1952,18 +1889,8 @@ export function MySkills() {
                   {skill.description || "—"}
                 </p>
 
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {skill.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className={cn(
-                        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium",
-                        getTagColor(tag, allTags)
-                      )}
-                    >
-                      {tag}
-                    </span>
-                  ))}
+                <div className="flex w-[176px] shrink-0 items-center">
+                  {renderTagsControl(skill, "row")}
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2.5">
@@ -2008,15 +1935,13 @@ export function MySkills() {
                     }
                     pendingKey={togglingTarget?.skillId === skill.id ? togglingTarget.tool : null}
                   />
-                  <span className="inline-flex items-center gap-1 text-[13px] text-muted">
+                  <span className="inline-flex w-[76px] items-center gap-1 text-[13px] text-muted">
                     {sourceIcon(skill.source_type)}
-                    {sourceTypeLabel(skill)}
+                    <span className="truncate">{sourceTypeLabel(skill)}</span>
                   </span>
-                  {enabledInPreset && (
-                    <span className="text-[13px] font-medium text-amber-600 dark:text-amber-400/80">
-                      {viewedPresetName}
-                    </span>
-                  )}
+                  <span className="flex w-[148px] items-center">
+                    {renderPresetsControl(skill, "row")}
+                  </span>
                 </div>
 
                 {isMissingLocalSource && !isMultiSelect && (
@@ -2075,12 +2000,13 @@ export function MySkills() {
                         },
                       ]}
                     />
-                    <ToggleSwitch
-                      checked={enabledInPreset}
-                      disabled={!viewedPreset}
-                      onChange={() => handleTogglePreset(skill)}
-                      title={enabledInPreset ? t("mySkills.enabledButton") : t("mySkills.enable")}
-                    />
+                    {viewedPreset && (
+                      <ToggleSwitch
+                        checked={enabledInPreset}
+                        onChange={() => handleTogglePreset(skill)}
+                        title={t(enabledInPreset ? "mySkills.disableInPreset" : "mySkills.enableInPreset", { preset: viewedPreset.name })}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -2103,6 +2029,14 @@ export function MySkills() {
         onToggleTool={handleToggleSkillTool}
         projects={projects}
         onProjectsChanged={refreshProjects}
+        membership={
+          selectedSkill ? (
+            <>
+              {renderTagsControl(selectedSkill, "card")}
+              {renderPresetsControl(selectedSkill, "card")}
+            </>
+          ) : null
+        }
       />
 
       <ConfirmDialog

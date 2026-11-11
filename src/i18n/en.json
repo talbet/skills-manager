@@ -16,7 +16,6 @@
     "settings": "Settings"
   },
   "help": {
-    "eyebrow": "Guide",
     "title": "Quick Start for Skills Manager",
     "description": "Fastest path: install skills → open Global Workspace → click a Preset pill to activate. Press ⌘K anytime for the command palette. Use Project Workspaces, Git backup, and Settings as needed.",
     "items": {
@@ -70,15 +69,17 @@
   },
   "dashboard": {
     "greeting": "Hello!",
-    "summary": "{{skills}} Skills in Library · {{agents}} Agents connected · {{projects}} Projects",
+    "summary": "{{skills}} skills in your library, {{agents}} agents connected, {{projects}} projects",
     "librarySkills": "Library Skills",
     "syncCoverage": "Sync Coverage",
     "connectedAgents": "Connected Agents",
-    "synced": "Synced",
     "notSynced": "Not synced",
     "scanImport": "Scan & Import Local Skills",
     "installNew": "Install New Skills",
-    "recentActivity": "Recent Activity"
+    "recentActivity": "Recent Activity",
+    "syncedTo": "Synced to {{agents}}",
+    "divergedWarning": "{{count}} project copies have diverged",
+    "backupStatus": "Backup: {{status}}"
   },
   "agentControl": {
     "title": "Let your agents manage skills",
@@ -424,7 +425,12 @@
       "manageHint": "Right-click to rename or delete",
       "tagRenamed": "Tag renamed",
       "tagDeleted": "Tag deleted",
-      "deleteConfirm": "Remove the tag \"{{tag}}\" from all skills?"
+      "deleteConfirm": "Remove the tag \"{{tag}}\" from all skills?",
+      "manage": "Edit tags",
+      "searchOrCreate": "Find or create a tag",
+      "create": "Create “{{name}}”",
+      "addFirst": "Tag",
+      "noMatch": "No matching tags"
     },
     "selectMode": "Select",
     "selectedCount": "{{count}} selected",
@@ -471,7 +477,19 @@
     },
     "ungrouped": "Ungrouped",
     "groupEnableAll": "Enable all in {{preset}}",
-    "groupDisableAll": "Disable all in {{preset}}"
+    "groupDisableAll": "Disable all in {{preset}}",
+    "presetSubtitle": "{{count}} of {{total}} library skills are in this preset",
+    "enableInPreset": "Add to {{preset}}",
+    "disableInPreset": "Remove from {{preset}}",
+    "presets": {
+      "manage": "Add to a preset",
+      "manageWith": "In presets: {{presets}}",
+      "search": "Find a preset",
+      "none": "No matching presets",
+      "add": "Preset"
+    },
+    "viewGrid": "Card view",
+    "viewList": "List view"
   },
   "install": {
     "title": "Install Skills",

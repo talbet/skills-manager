@@ -17,10 +17,7 @@ export function HelpDialog() {
         <div className="border-b border-border-subtle bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.18),transparent_45%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.16),transparent_40%)] px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-[13px] font-semibold uppercase tracking-[0.18em] text-faint">
-                {t("help.eyebrow")}
-              </p>
-              <h2 className="mt-2 text-[20px] font-semibold text-primary">{t("help.title")}</h2>
+              <h2 className="text-[20px] font-semibold text-primary">{t("help.title")}</h2>
               <p className="mt-1 text-[13px] text-muted">{t("help.description")}</p>
             </div>
             <button

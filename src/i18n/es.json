@@ -16,7 +16,6 @@
     "settings": "Ajustes"
   },
   "help": {
-    "eyebrow": "Guía",
     "title": "Inicio rápido de Skills Manager",
     "description": "Ruta más rápida: instala skills → abre el Espacio de trabajo global → haz clic en una píldora de preset para activar. Pulsa ⌘K en cualquier momento para la paleta de comandos. Usa los Espacios de trabajo de proyecto, la Copia de seguridad con Git y los Ajustes según lo necesites.",
     "items": {
@@ -74,7 +73,6 @@
     "librarySkills": "Skills de la Biblioteca",
     "syncCoverage": "Cobertura de sincronización",
     "connectedAgents": "Agentes conectados",
-    "synced": "Sincronizado",
     "notSynced": "No sincronizado",
     "scanImport": "Escanear e importar skills locales",
     "installNew": "Instalar nuevos skills",

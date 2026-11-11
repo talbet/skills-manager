@@ -16,7 +16,6 @@
     "settings": "設定"
   },
   "help": {
-    "eyebrow": "操作指南",
     "title": "快速上手 Skills Manager",
     "description": "最快路徑：安裝 Skills → 開啟全域工作區 → 點擊 Preset 標籤啟用。按 ⌘K 可隨時呼出命令面板。按需使用專案工作區、Git 備份和設定。",
     "items": {
@@ -74,7 +73,6 @@
     "librarySkills": "Library Skills",
     "syncCoverage": "同步覆蓋",
     "connectedAgents": "已接入 Agent",
-    "synced": "已同步",
     "notSynced": "未同步",
     "scanImport": "掃描本機 Skills 匯入",
     "installNew": "安裝新 Skills",

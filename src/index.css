@@ -74,6 +74,18 @@
     @apply bg-background text-primary font-sans antialiased overflow-hidden;
     letter-spacing: -0.005em;
   }
+
+  ::selection {
+    background: var(--color-accent-border);
+  }
+
+  /* Many controls clear the outline with `outline-none` for mouse users; the
+     keyboard still needs to see where focus is. Text fields keep their own
+     border treatment, so they are left out. */
+  :is(button, a[href], summary, [role="button"], [role="switch"], [role="option"], [role="tab"]):focus-visible {
+    outline: 2px solid var(--color-accent-light) !important;
+    outline-offset: 2px;
+  }
 }
 
 @layer components {
@@ -106,7 +118,7 @@
   }
 
   .app-section-title {
-    @apply text-[12px] font-semibold uppercase tracking-[0.08em] text-muted;
+    @apply text-[13px] font-semibold text-muted;
   }
 
   .app-panel {

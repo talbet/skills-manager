@@ -16,7 +16,6 @@
     "settings": "설정"
   },
   "help": {
-    "eyebrow": "가이드",
     "title": "Skills Manager 빠른 시작",
     "description": "스킬을 설치하고 전역 워크스페이스를 연 뒤 프리셋 버튼을 눌러 활성화하는 방법이 가장 빠릅니다. 언제든 ⌘K를 누르면 명령 팔레트가 열립니다. 필요에 따라 프로젝트 워크스페이스, Git 백업, 설정을 사용합니다.",
     "items": {
@@ -74,7 +73,6 @@
     "librarySkills": "라이브러리 스킬",
     "syncCoverage": "동기화 범위",
     "connectedAgents": "연결된 에이전트",
-    "synced": "동기화됨",
     "notSynced": "동기화 안 됨",
     "scanImport": "로컬 스킬 검사해서 가져오기",
     "installNew": "새 스킬 설치",
