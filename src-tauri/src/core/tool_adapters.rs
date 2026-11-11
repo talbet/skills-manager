@@ -60,14 +60,14 @@ pub struct CustomToolDef {
 
 impl ToolAdapter {
     fn home() -> PathBuf {
-        dirs::home_dir().expect("Cannot determine home directory")
+        super::dev_home::home_dir().expect("Cannot determine home directory")
     }
 
     fn candidate_paths(relative: &str) -> Vec<PathBuf> {
         let mut candidates = vec![Self::home().join(relative)];
 
         if let Some(suffix) = relative.strip_prefix(".config/") {
-            if let Some(config_dir) = dirs::config_dir() {
+            if let Some(config_dir) = super::dev_home::config_dir() {
                 let config_path = config_dir.join(suffix);
                 if !candidates.contains(&config_path) {
                     candidates.push(config_path);

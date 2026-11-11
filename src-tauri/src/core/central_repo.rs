@@ -108,7 +108,7 @@ pub fn home_base_dir() -> PathBuf {
     {
         return path.join(".skills-manager");
     }
-    dirs::home_dir()
+    super::dev_home::home_dir()
         .expect("Cannot determine home directory")
         .join(".skills-manager")
 }
@@ -139,7 +139,7 @@ fn config_file_path() -> PathBuf {
     {
         return path;
     }
-    dirs::config_dir()
+    super::dev_home::config_dir()
         .unwrap_or_else(default_base_dir)
         .join("skills-manager")
         .join(CONFIG_FILE_NAME)
@@ -197,9 +197,9 @@ fn normalize_path(raw: &str) -> Result<PathBuf> {
     }
 
     let expanded = if trimmed == "~" {
-        dirs::home_dir().ok_or_else(|| anyhow!("Cannot determine home directory"))?
+        super::dev_home::home_dir().ok_or_else(|| anyhow!("Cannot determine home directory"))?
     } else if trimmed.starts_with("~/") || trimmed.starts_with("~\\") {
-        dirs::home_dir()
+        super::dev_home::home_dir()
             .ok_or_else(|| anyhow!("Cannot determine home directory"))?
             .join(&trimmed[2..])
     } else {
@@ -940,7 +940,7 @@ pub fn ensure_central_repo(allow_migration: bool) -> Result<()> {
     // it renames entries into `current_base` and skips ones that already
     // exist, so pre-created empty dirs would silently swallow it (the old
     // ordering made this branch dead code).
-    let legacy_path = dirs::home_dir().map(|home| home.join(".agent-skills"));
+    let legacy_path = super::dev_home::home_dir().map(|home| home.join(".agent-skills"));
     if let Some(old_path) = legacy_path {
         if old_path.exists() && !current_base.join("skills").exists() {
             log::info!("Migrating from old path {:?}", old_path);
