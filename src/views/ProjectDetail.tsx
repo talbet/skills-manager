@@ -1448,7 +1448,7 @@ export function ProjectDetail() {
                 <div
                   key={skillKey}
                   className={cn(
-                    "app-panel group relative flex h-full cursor-pointer flex-col overflow-hidden shadow-card transition-all hover:-translate-y-px hover:border-border hover:shadow-card-hover",
+                    "app-panel group relative flex h-full cursor-pointer flex-col overflow-hidden shadow-card transition-[box-shadow,border-color] hover:border-border hover:shadow-card-hover",
                     isMultiSelect && isSelected && "ring-1 ring-accent border-accent/40"
                   )}
                   onClick={() =>
