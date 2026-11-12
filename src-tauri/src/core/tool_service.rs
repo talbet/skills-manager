@@ -206,12 +206,12 @@ pub fn normalize_skills_dir_input(path: &str) -> Result<String, AppError> {
     }
 
     let expanded = if raw == "~" {
-        dirs::home_dir()
+        super::dev_home::home_dir()
             .ok_or_else(|| AppError::internal("Cannot determine home directory"))?
             .to_string_lossy()
             .to_string()
     } else if let Some(rest) = raw.strip_prefix("~/") {
-        dirs::home_dir()
+        super::dev_home::home_dir()
             .ok_or_else(|| AppError::internal("Cannot determine home directory"))?
             .join(rest)
             .to_string_lossy()

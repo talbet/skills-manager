@@ -863,6 +863,13 @@ pub fn run() {
                 builder_to_setup_ms
             );
             startup_timings.log();
+            if let Some(home) = core::dev_home::sandbox() {
+                log::warn!(
+                    "dev home sandbox active: {}={} (library, config and agent dirs live there)",
+                    core::dev_home::ENV_VAR,
+                    home.display()
+                );
+            }
 
             // Flush any errors stashed while resolving the central repo — that
             // ran before this logger existed, so its own log calls were no-ops

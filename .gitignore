@@ -15,6 +15,9 @@ dist-ssr
 # TypeScript build info
 *.tsbuildinfo
 
+# Dev sandbox home (scripts/tauri-dev.mjs)
+.dev-home
+
 # Environment variables
 .env
 .env.*

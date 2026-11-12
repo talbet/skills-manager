@@ -1763,9 +1763,7 @@ fn expand_path(s: &str) -> anyhow::Result<PathBuf> {
 }
 
 fn dirs_home() -> anyhow::Result<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| anyhow!("HOME env var not set"))
+    app_lib::core::dev_home::home_dir().ok_or_else(|| anyhow!("Cannot determine home directory"))
 }
 
 // ── update / check ────────────────────────────────────────────────────────
