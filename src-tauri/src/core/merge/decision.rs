@@ -243,6 +243,9 @@ fn planned(obj: &SkillObj, from_theirs: bool) -> PlannedSkill {
     }
 }
 
+// Built once per merge component and consumed immediately; boxing the
+// large variant would buy nothing.
+#[allow(clippy::large_enum_variant)]
 enum ComponentOutcome {
     Merged {
         skill: PlannedSkill,

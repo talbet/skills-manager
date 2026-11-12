@@ -8,6 +8,12 @@ pub struct InstallCancelRegistry {
     tokens: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
+impl Default for InstallCancelRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InstallCancelRegistry {
     pub fn new() -> Self {
         Self {

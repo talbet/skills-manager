@@ -20,7 +20,8 @@ pub enum LeaderboardType {
 }
 
 impl LeaderboardType {
-    pub fn from_str(s: &str) -> Self {
+    /// Lenient parse: unknown values fall back to all-time.
+    pub fn parse(s: &str) -> Self {
         match s {
             "trending" => Self::Trending,
             "hot" => Self::Hot,

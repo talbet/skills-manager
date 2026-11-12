@@ -728,7 +728,7 @@ pub async fn delete_managed_skill(
 ) -> Result<(), AppError> {
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let result = delete_managed_skills_by_ids(&store, &[skill_id.clone()])?;
+        let result = delete_managed_skills_by_ids(&store, std::slice::from_ref(&skill_id))?;
         if result.deleted == 0 {
             return Err(AppError::not_found("Skill not found"));
         }

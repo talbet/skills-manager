@@ -16,6 +16,7 @@ on:
       - 'tailwind.config.js'
       - 'postcss.config.js'
       - 'scripts/check-ui-spec.mjs'
+      - 'scripts/check-i18n.mjs'
       - '.github/workflows/frontend.yml'
   pull_request:
     paths:
@@ -29,6 +30,7 @@ on:
       - 'tailwind.config.js'
       - 'postcss.config.js'
       - 'scripts/check-ui-spec.mjs'
+      - 'scripts/check-i18n.mjs'
       - '.github/workflows/frontend.yml'
 
 permissions:

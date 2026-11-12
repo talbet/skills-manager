@@ -11,6 +11,10 @@ permissions:
 
 jobs:
   build:
+    # The build signs updater artifacts and, through tauri-action, creates a
+    # draft release. A manual dispatch from an unreviewed branch must not get
+    # the signing keys, so only tags and main may run it.
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:

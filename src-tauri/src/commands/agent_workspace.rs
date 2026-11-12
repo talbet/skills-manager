@@ -176,7 +176,7 @@ pub async fn get_global_local_skill_document(
         let skill_dir = skills_root.join(&skill_relative_path);
         ensure_agent_skill_path(&skill_dir, &skills_root)?;
 
-        let allowed_roots = vec![skills_root];
+        let allowed_roots = [skills_root];
         let candidates = ["SKILL.md", "skill.md", "CLAUDE.md", "README.md"];
         for candidate in &candidates {
             let file_path = skill_dir.join(candidate);
@@ -746,7 +746,7 @@ mod tests {
         .unwrap();
         scenario_service::apply_skills_to_tools(
             &store,
-            &[skill_id.clone()],
+            std::slice::from_ref(&skill_id),
             &["hermes".to_string()],
             scenario_service::BatchApplyMode::Add,
         )

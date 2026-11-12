@@ -93,8 +93,8 @@ pub fn is_path_safe(base: &Path, target: &Path) -> bool {
 /// Resolve a path that may not exist yet by walking from the nearest
 /// existing ancestor.
 fn resolve_non_existing(path: &Path) -> PathBuf {
-    let mut ancestors = path.ancestors();
-    while let Some(anc) = ancestors.next() {
+    let ancestors = path.ancestors();
+    for anc in ancestors {
         if let Ok(real) = anc.canonicalize() {
             let mut out = real;
             if let Ok(rest) = path.strip_prefix(anc) {

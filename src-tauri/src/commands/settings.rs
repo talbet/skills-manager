@@ -363,9 +363,7 @@ pub async fn get_recent_log_excerpt(app: tauri::AppHandle) -> Result<LogExcerpt,
             for &idx in &alerts {
                 let lo = idx.saturating_sub(context);
                 let hi = (idx + context + 1).min(window.len());
-                for k in lo..hi {
-                    keep[k] = true;
-                }
+                keep[lo..hi].fill(true);
             }
             let mut out = String::new();
             let mut last_kept: Option<usize> = None;

@@ -2050,7 +2050,7 @@ fn run_sync(
             .map_err(map_app_err)?;
         let desired: Vec<_> = desired
             .into_iter()
-            .filter(|target| tool_key.is_none_or(|tool| target.tool == tool))
+            .filter(|target| tool_key.map_or(true, |tool| target.tool == tool))
             .collect();
         scenario_service::preflight_scenario_sync_targets(store, &desired).map_err(map_app_err)?;
         return Ok(SyncReport {
@@ -2155,6 +2155,8 @@ fn run_adopt(
     // before any filesystem work. parse_git_source pulls a subpath out of GitHub
     // /tree/branch/path URLs; --git-subpath is the explicit override (pass ""
     // to mean "skill lives at the repo root").
+    // (clone url, subpath, branch, original url)
+    #[allow(clippy::type_complexity)]
     let resolved_git: Option<(String, Option<String>, Option<String>, Option<String>)> =
         if let Some(url) = git_url {
             git_fetcher::validate_git_url(url)?;
@@ -3483,7 +3485,7 @@ mod tests {
             project_relative_skills_dir: None,
             category: ToolCategory::Coding,
         };
-        tool_service::set_custom_tools(&store, &[test_agent.clone()]).unwrap();
+        tool_service::set_custom_tools(&store, std::slice::from_ref(&test_agent)).unwrap();
         store.set_setting("sync_mode", "copy").unwrap();
         store
             .insert_skill(&SkillRecord {
