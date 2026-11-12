@@ -354,9 +354,9 @@ pub(crate) fn set_remote_unlocked(skills_dir: &Path, url: &str) -> Result<()> {
 
     let has_remote = run_git(skills_dir, &["remote", "get-url", "origin"]).is_ok();
     if has_remote {
-        run_git_checked(skills_dir, &["remote", "set-url", "origin", url])?;
+        run_git_checked(skills_dir, &["remote", "set-url", "--", "origin", url])?;
     } else {
-        run_git_checked(skills_dir, &["remote", "add", "origin", url])?;
+        run_git_checked(skills_dir, &["remote", "add", "--", "origin", url])?;
     }
 
     // Fetch remote to set up tracking
@@ -400,9 +400,9 @@ pub(crate) fn set_remote_unlocked(skills_dir: &Path, url: &str) -> Result<()> {
 pub(crate) fn set_remote_url_only(skills_dir: &Path, url: &str) -> Result<()> {
     ensure_repo(skills_dir)?;
     if run_git(skills_dir, &["remote", "get-url", "origin"]).is_ok() {
-        run_git_checked(skills_dir, &["remote", "set-url", "origin", url])
+        run_git_checked(skills_dir, &["remote", "set-url", "--", "origin", url])
     } else {
-        run_git_checked(skills_dir, &["remote", "add", "origin", url])
+        run_git_checked(skills_dir, &["remote", "add", "--", "origin", url])
     }
 }
 
@@ -425,7 +425,7 @@ pub fn remote_has_heads(url: &str) -> Result<bool> {
     }
     let env = git_credentials::credential_env_for_url(url);
     let output = git_command()
-        .args(["ls-remote", "--heads"])
+        .args(["ls-remote", "--heads", "--"])
         .arg(url)
         .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .output()
@@ -1146,6 +1146,7 @@ pub(crate) fn clone_into_unlocked(
         let output = git_command()
             .args(["-c", "init.defaultRefFormat=files", "clone"])
             .env_remove("GIT_DEFAULT_REF_FORMAT")
+            .arg("--")
             .arg(url)
             .arg(skills_dir)
             .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))

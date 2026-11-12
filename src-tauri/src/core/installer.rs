@@ -198,9 +198,37 @@ pub fn install_skill_dir_to_destination(
     })
 }
 
+/// Upper bounds for a local `.zip`/`.skill` import. Skills are small text
+/// bundles; these stop a zip bomb from filling the disk.
+const MAX_IMPORT_ENTRIES: usize = 4096;
+const MAX_IMPORT_EXTRACTED_BYTES: u64 = 100 * 1024 * 1024;
+
 /// Extract a ZIP archive into `dest`, skipping any entry whose path would
 /// escape the destination directory (Zip Slip defence).
 fn safe_extract(archive: &mut zip::ZipArchive<std::fs::File>, dest: &Path) -> Result<()> {
+    safe_extract_with_limits(
+        archive,
+        dest,
+        MAX_IMPORT_ENTRIES,
+        MAX_IMPORT_EXTRACTED_BYTES,
+    )
+}
+
+fn safe_extract_with_limits<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    dest: &Path,
+    max_entries: usize,
+    max_bytes: u64,
+) -> Result<()> {
+    use std::io::Read;
+
+    if archive.len() > max_entries {
+        anyhow::bail!(
+            "Archive has {} entries; the limit is {max_entries}",
+            archive.len()
+        );
+    }
+    let mut remaining = max_bytes;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
 
@@ -223,17 +251,26 @@ fn safe_extract(archive: &mut zip::ZipArchive<std::fs::File>, dest: &Path) -> Re
                 std::fs::create_dir_all(parent)?;
             }
             let mut outfile = std::fs::File::create(&entry_path)?;
-            std::io::copy(&mut entry, &mut outfile)?;
+            // Count the bytes actually inflated rather than trusting the
+            // entry's declared size, which an archive can lie about.
+            let written = std::io::copy(&mut (&mut entry).take(remaining + 1), &mut outfile)?;
+            if written > remaining {
+                anyhow::bail!(
+                    "Archive expands to more than {} MB",
+                    max_bytes / (1024 * 1024)
+                );
+            }
+            remaining -= written;
 
-            // Restore Unix file permissions (especially executable bits)
-            // from the ZIP entry metadata.
+            // Restore the executable bits from the ZIP entry metadata, but
+            // never setuid/setgid/sticky or group/world-writable bits.
             #[cfg(unix)]
             {
                 if let Some(mode) = entry.unix_mode() {
                     use std::os::unix::fs::PermissionsExt;
                     let _ = std::fs::set_permissions(
                         &entry_path,
-                        std::fs::Permissions::from_mode(mode),
+                        std::fs::Permissions::from_mode((mode & 0o755) | 0o600),
                     );
                 }
             }
@@ -504,5 +541,60 @@ mod tests {
         let second_hash = hash_local_source(&archive).unwrap();
 
         assert_ne!(first_hash, second_hash);
+    }
+
+    fn zip_bytes(files: &[(&str, &[u8], Option<u32>)]) -> Vec<u8> {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, body, mode) in files {
+            let mut options = SimpleFileOptions::default();
+            if let Some(mode) = mode {
+                options = options.unix_permissions(*mode);
+            }
+            zip.start_file(*name, options).unwrap();
+            zip.write_all(body).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    fn extract(bytes: Vec<u8>, dest: &Path, max_entries: usize, max_bytes: u64) -> Result<()> {
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        safe_extract_with_limits(&mut archive, dest, max_entries, max_bytes)
+    }
+
+    #[test]
+    fn safe_extract_rejects_archives_over_the_byte_limit() {
+        let tmp = tempdir().unwrap();
+        let big = vec![b'a'; 2048];
+        let bytes = zip_bytes(&[("s/SKILL.md", b"x", None), ("s/big.txt", &big, None)]);
+        assert!(extract(bytes.clone(), tmp.path(), 16, 1024).is_err());
+        assert!(extract(bytes, &tmp.path().join("ok"), 16, 4096).is_ok());
+    }
+
+    #[test]
+    fn safe_extract_rejects_archives_over_the_entry_limit() {
+        let tmp = tempdir().unwrap();
+        let bytes = zip_bytes(&[("a", b"1", None), ("b", b"2", None), ("c", b"3", None)]);
+        assert!(extract(bytes, tmp.path(), 2, 1024).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn safe_extract_keeps_exec_bits_but_drops_setuid_and_world_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempdir().unwrap();
+        let bytes = zip_bytes(&[
+            ("s/run.sh", b"#!/bin/sh", Some(0o4777)),
+            ("s/ro.md", b"x", Some(0o444)),
+        ]);
+        extract(bytes, tmp.path(), 16, 1024).unwrap();
+        let mode = |p: &str| {
+            std::fs::metadata(tmp.path().join(p))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777
+        };
+        assert_eq!(mode("s/run.sh"), 0o755);
+        assert_eq!(mode("s/ro.md"), 0o644);
     }
 }

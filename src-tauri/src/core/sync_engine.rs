@@ -618,6 +618,14 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let ft = entry.file_type()?;
+        // A library skill can contain symlinks after a git-backup pull from
+        // another device or a shared remote. Copying through them would turn
+        // e.g. `notes -> ~/.ssh/id_ed25519` into a real file in the agent dir
+        // (often a committed project folder). The installer and the content
+        // hash both ignore symlinks, so skip them here too.
+        if ft.is_symlink() {
+            continue;
+        }
         let dest_path = dst.join(entry.file_name());
         if ft.is_dir() {
             let name = entry.file_name();
@@ -1103,6 +1111,26 @@ mod tests {
     }
 
     // ── copy_dir_recursive ──
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_recursive_does_not_follow_symlinks() {
+        let tmp = tempdir().unwrap();
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, "private key").unwrap();
+        let src = tmp.path().join("src");
+        fs::create_dir_all(src.join("sub")).unwrap();
+        fs::write(src.join("SKILL.md"), "# s").unwrap();
+        std::os::unix::fs::symlink(&secret, src.join("notes")).unwrap();
+        std::os::unix::fs::symlink(tmp.path(), src.join("sub/up")).unwrap();
+
+        let dst = tmp.path().join("dst");
+        copy_dir_recursive(&src, &dst).unwrap();
+
+        assert!(dst.join("SKILL.md").exists());
+        assert!(fs::symlink_metadata(dst.join("notes")).is_err());
+        assert!(fs::symlink_metadata(dst.join("sub/up")).is_err());
+    }
 
     #[test]
     fn copy_dir_recursive_skips_dot_git() {

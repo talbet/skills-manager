@@ -69,6 +69,10 @@ pub fn parse_site_ref(input: &str) -> Result<SiteRef> {
     if !is_safe_segment(domain) || !is_safe_segment(skill) {
         bail!("Invalid skills.sh site reference");
     }
+    let source = reqwest::Url::parse(&format!("https://{domain}/"))?;
+    if !is_public_host(&source) {
+        bail!("skills.sh site reference points at a local or private address");
+    }
 
     Ok(SiteRef {
         source_url: format!("https://{domain}/"),
@@ -109,6 +113,15 @@ pub fn download_site_skill(input: &str, proxy_url: Option<&str>) -> Result<Downl
     let skill_dir = temp.path().join("skill");
     std::fs::create_dir_all(&skill_dir)?;
 
+    // An index can name an absolute artifact URL on another host; keep it off
+    // loopback, private and link-local addresses (an SSRF into the user's
+    // network that would be saved as a "skill").
+    if let Some(artifact) = entry.get("url").and_then(Value::as_str) {
+        if !is_public_host(&index.url.join(artifact)?) {
+            bail!("skills index points at a local or private address");
+        }
+    }
+
     let (resolved_url, revision) = if index.payload.get("$schema").is_some() {
         download_v2_entry(&client, &index, entry, &skill_dir)?
     } else {
@@ -143,7 +156,16 @@ fn site_client(proxy_url: Option<&str>) -> Result<Client> {
     let mut builder = Client::builder()
         .user_agent("skills-manager")
         .timeout(std::time::Duration::from_secs(30))
-        .https_only(true);
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 10 {
+                attempt.error("too many redirects")
+            } else if !is_public_host(attempt.url()) {
+                attempt.error("redirect to a local or private address")
+            } else {
+                attempt.follow()
+            }
+        }));
     if let Some(proxy) = proxy_url.filter(|s| !s.is_empty()) {
         if let Ok(proxy) = reqwest::Proxy::all(proxy) {
             builder = builder.proxy(proxy);
@@ -421,6 +443,44 @@ impl PathBudget {
     }
 }
 
+/// False for hosts that resolve to the user's own machine or network by
+/// name or literal address: `localhost`, loopback, private (RFC 1918 / ULA),
+/// link-local, CGNAT and unspecified. DNS names are not resolved, so this is a
+/// guard against crafted links, not against DNS rebinding.
+fn is_public_host(url: &reqwest::Url) -> bool {
+    use std::net::{IpAddr, Ipv4Addr};
+    fn v4_is_public(ip: Ipv4Addr) -> bool {
+        let [a, b, ..] = ip.octets();
+        !(ip.is_loopback()
+            || ip.is_private()
+            || ip.is_link_local()
+            || ip.is_unspecified()
+            || ip.is_broadcast()
+            || (a == 100 && (64..128).contains(&b)))
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => v4_is_public(ip),
+        Ok(IpAddr::V6(ip)) => {
+            if let Some(v4) = ip.to_ipv4_mapped() {
+                return v4_is_public(v4);
+            }
+            let first = ip.segments()[0];
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80)
+        }
+        Err(_) => {
+            let name = host.trim_end_matches('.').to_ascii_lowercase();
+            name != "localhost" && !name.ends_with(".localhost")
+        }
+    }
+}
+
 fn is_safe_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment
@@ -437,6 +497,39 @@ mod tests {
     use super::*;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
+
+    #[test]
+    fn site_refs_to_local_or_private_hosts_are_rejected() {
+        for domain in [
+            "localhost",
+            "127.0.0.1",
+            "10.0.0.5",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "app.localhost",
+        ] {
+            let link = format!("https://www.skills.sh/site/{domain}/x");
+            assert!(
+                parse_site_ref(&link).is_err(),
+                "{domain} should be rejected"
+            );
+        }
+        assert!(parse_site_ref("https://www.skills.sh/site/example.com/x").is_ok());
+    }
+
+    #[test]
+    fn is_public_host_classifies_literal_addresses() {
+        let public = |u: &str| is_public_host(&reqwest::Url::parse(u).unwrap());
+        assert!(public("https://example.com/a"));
+        assert!(public("https://8.8.8.8/a"));
+        assert!(public("https://[2606:4700::1111]/a"));
+        assert!(!public("https://[::1]/a"));
+        assert!(!public("https://[fd00::1]/a"));
+        assert!(!public("https://[fe80::1]/a"));
+        assert!(!public("https://[::ffff:127.0.0.1]/a"));
+        assert!(!public("https://LOCALHOST./a"));
+    }
 
     #[test]
     fn parses_website_synced_skills_sh_refs() {
@@ -618,7 +711,7 @@ mod tests {
         let thread = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0u8; 4096];
-            stream.read(&mut request).unwrap();
+            let _ = stream.read(&mut request).unwrap();
             stream
                 .write_all(
                     b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
@@ -709,7 +802,7 @@ mod tests {
             for _ in 0..2 {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = [0u8; 4096];
-                stream.read(&mut request).unwrap();
+                let _ = stream.read(&mut request).unwrap();
                 // Each file fits the per-download limit; their sum does not.
                 write!(
                     stream,

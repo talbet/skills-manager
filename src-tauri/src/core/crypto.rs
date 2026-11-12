@@ -14,32 +14,66 @@ pub const ENC_PREFIX: &str = "enc:v1:";
 /// values permanently undecryptable.
 pub fn load_or_create_key(path: &Path) -> Result<[u8; 32]> {
     if path.exists() {
-        let bytes = std::fs::read(path).context("Failed to read secret key file")?;
-        anyhow::ensure!(
-            bytes.len() == 32,
-            "Secret key file '{}' is corrupted ({} bytes, expected 32). \
-             Delete it manually to regenerate, but note that existing encrypted values will be lost.",
-            path.display(),
-            bytes.len()
-        );
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&bytes);
-        return Ok(key);
+        return read_key(path);
     }
 
     let mut key = [0u8; 32];
     use rand::RngCore;
     rand::thread_rng().fill_bytes(&mut key);
-    std::fs::write(path, key).context("Failed to write secret key file")?;
-    set_owner_readonly(path);
+    // Create the file owner-only from the start (no window where it is
+    // readable under the default umask) and with `create_new`, so the GUI and
+    // CLI starting together cannot each write a different key.
+    let mut file = match open_new_owner_only(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return read_key(path),
+        Err(e) => return Err(e).context("Failed to create secret key file"),
+    };
+    use std::io::Write;
+    file.write_all(&key)
+        .and_then(|()| file.sync_all())
+        .context("Failed to write secret key file")?;
     Ok(key)
+}
+
+fn read_key(path: &Path) -> Result<[u8; 32]> {
+    let bytes = std::fs::read(path).context("Failed to read secret key file")?;
+    anyhow::ensure!(
+        bytes.len() == 32,
+        "Secret key file '{}' is corrupted ({} bytes, expected 32). \
+         Delete it manually to regenerate, but note that existing encrypted values will be lost.",
+        path.display(),
+        bytes.len()
+    );
+    // Tighten key files written by older versions under the default umask.
+    set_owner_readonly(path);
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&bytes);
+    Ok(key)
+}
+
+fn open_new_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
 }
 
 /// On Unix, restrict the key file to owner-only access (0600).
 #[cfg(unix)]
 fn set_owner_readonly(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    if meta.permissions().mode() & 0o077 != 0 {
+        if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            log::warn!("Could not restrict {} to owner-only: {e}", path.display());
+        }
+    }
 }
 
 #[cfg(not(unix))]
@@ -155,6 +189,19 @@ mod tests {
         std::fs::write(&path, b"too-short").unwrap();
         let err = load_or_create_key(&path).unwrap_err();
         assert!(err.to_string().contains("corrupted"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_world_readable_key_is_tightened_on_load() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".secret.key");
+        std::fs::write(&path, [7u8; 32]).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(load_or_create_key(&path).unwrap(), [7u8; 32]);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[cfg(unix)]
