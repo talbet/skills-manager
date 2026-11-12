@@ -1043,6 +1043,12 @@ fn settle_worktree_from(repo: &Repository, expected_clean: Oid, target: Oid) -> 
             .or_else(|_| git2::Signature::now("Skills Manager", "skills-manager@local"))?;
         let mut index = repo.index()?;
         index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
+        // Persist the staged debris. The force checkout below only removes
+        // files the index tracks; left in memory, the staging is lost when
+        // libgit2 reloads the index from disk (it does whenever the on-disk
+        // checksum is unknown, e.g. under `index.skipHash`, which
+        // `feature.manyFiles` turns on) and the debris would survive.
+        index.write()?;
         let rescue_tree = repo.find_tree(index.write_tree()?)?;
         let rescue = repo.commit(
             None,

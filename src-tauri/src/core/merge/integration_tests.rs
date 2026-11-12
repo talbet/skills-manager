@@ -821,12 +821,27 @@ fn recovery_rescues_user_edits_made_after_crash() {
 
 #[test]
 fn recovery_settles_partial_rollback_debris_back_onto_head() {
+    assert_partial_rollback_recovery(false);
+}
+
+#[test]
+fn recovery_settles_partial_rollback_debris_with_skip_hash_index() {
+    assert_partial_rollback_recovery(true);
+}
+
+fn assert_partial_rollback_recovery(skip_hash: bool) {
     // codex review finding 1: crash after the branch ref was rolled back to
     // old HEAD but before the working tree was restored — recovery must not
     // just delete the markers and leave half-merged debris to be committed
     // as ordinary edits.
     let env = setup();
     let a = env.device_a();
+    if skip_hash {
+        // git >= 2.40 writes a checksum-less index under `index.skipHash`
+        // (on with `feature.manyFiles`); libgit2 then reloads the index
+        // before checkout, which once dropped the rescue staging.
+        git(&a.skills, &["config", "index.skipHash", "true"]);
+    }
     a.write_skill("skill-1", "alpha", "base");
     a.commit("seed");
 
