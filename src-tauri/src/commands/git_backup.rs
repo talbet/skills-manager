@@ -215,8 +215,7 @@ fn connect_with_token(
         .set_setting("github_auth_method", method)
         .map_err(AppError::db)?;
 
-    let remote_has_content =
-        git_backup::remote_has_heads(&info.url).map_err(classify_git_chain)?;
+    let remote_has_content = git_backup::remote_has_heads(&info.url).map_err(classify_git_chain)?;
 
     Ok(GithubBackupConnectResult {
         url: info.url,
@@ -287,9 +286,8 @@ pub async fn github_device_flow_poll(
 /// must save and display.
 #[tauri::command]
 pub async fn git_backup_sanitize_remote_url(url: String) -> Result<String, AppError> {
-    git_fetcher::validate_git_url(&url).map_err(AppError::git)?;
-    tokio::task::spawn_blocking(move || Ok(sanitize_url_to_keychain(url.trim())))
-        .await?
+    git_fetcher::validate_backup_remote_url(&url).map_err(AppError::git)?;
+    tokio::task::spawn_blocking(move || Ok(sanitize_url_to_keychain(url.trim()))).await?
 }
 
 #[tauri::command]
@@ -298,7 +296,7 @@ pub async fn git_backup_set_remote(
     url: String,
 ) -> Result<String, AppError> {
     sync_engine_pref(&store);
-    git_fetcher::validate_git_url(&url).map_err(AppError::git)?;
+    git_fetcher::validate_backup_remote_url(&url).map_err(AppError::git)?;
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
         let effective = sanitize_url_to_keychain(url.trim());
@@ -436,8 +434,10 @@ pub async fn git_backup_sync(
     sync_engine_pref(&store);
     let skills_dir = central_repo::skills_dir();
     tokio::task::spawn_blocking(move || {
-        git_backup::with_repo_lock("git sync", || run_sync_blocking(&store, &skills_dir, &message))
-            .map_err(classify_git_chain)
+        git_backup::with_repo_lock("git sync", || {
+            run_sync_blocking(&store, &skills_dir, &message)
+        })
+        .map_err(classify_git_chain)
     })
     .await?
 }
@@ -487,8 +487,7 @@ fn run_sync_blocking(
         }
 
         let status = git_backup::get_status(skills_dir)?;
-        let needs_push =
-            committed || status.ahead > 0 || status.upstream_health == "no_upstream";
+        let needs_push = committed || status.ahead > 0 || status.upstream_health == "no_upstream";
         if !needs_push {
             break;
         }
@@ -508,7 +507,10 @@ fn run_sync_blocking(
                 if !rejected || attempt + 1 == SYNC_PUSH_ATTEMPTS {
                     return Err(e);
                 }
-                log::info!("git sync: push rejected (attempt {}), refetching", attempt + 1);
+                log::info!(
+                    "git sync: push rejected (attempt {}), refetching",
+                    attempt + 1
+                );
                 git_backup::fetch_branch(skills_dir, &branch)?;
             }
         }
@@ -528,7 +530,12 @@ fn run_sync_blocking(
             ))
             .ok(),
     );
-    Ok(SyncOutcome { committed, merge: merge_summary, pushed, snapshot_tag })
+    Ok(SyncOutcome {
+        committed,
+        merge: merge_summary,
+        pushed,
+        snapshot_tag,
+    })
 }
 
 /// Pending "needs attention" conflicts (merge-engine design §4) for the
@@ -559,9 +566,8 @@ pub async fn git_backup_resolve_conflict(
     tokio::task::spawn_blocking(move || {
         git_backup::with_repo_lock("resolve conflict", || {
             apply_device_identity(&store, &skills_dir);
-            let safety_tag = merge::resolve::resolve_conflict_unlocked(
-                &store, &skills_dir, &skill_id, action,
-            )?;
+            let safety_tag =
+                merge::resolve::resolve_conflict_unlocked(&store, &skills_dir, &skill_id, action)?;
             reconcile_skills_index_unlocked(&store)?;
             store.log_audit(
                 crate::core::audit_log::AuditDraft::new("resolve_conflict")
@@ -586,7 +592,7 @@ pub async fn git_backup_clone(
     url: String,
     set_aside: Option<Vec<String>>,
 ) -> Result<Option<String>, AppError> {
-    git_fetcher::validate_git_url(&url).map_err(AppError::git)?;
+    git_fetcher::validate_backup_remote_url(&url).map_err(AppError::git)?;
     let store = store.inner().clone();
     sync_engine_pref(&store);
     let skills_dir = central_repo::skills_dir();
@@ -599,8 +605,9 @@ pub async fn git_backup_clone(
                 &set_aside.unwrap_or_default(),
             )?;
             apply_device_identity(&store, &skills_dir);
-            reconcile_skills_index_unlocked(&store)
-                .map_err(|e| name_what_was_left(e, &[("local versions of differing skills", &local_copies)]))?;
+            reconcile_skills_index_unlocked(&store).map_err(|e| {
+                name_what_was_left(e, &[("local versions of differing skills", &local_copies)])
+            })?;
             Ok(local_copies.map(|path| path.display().to_string()))
         })
         .map_err(classify_git_chain)
@@ -624,7 +631,7 @@ pub async fn git_backup_reclone(
     url: String,
     set_aside: Option<Vec<String>>,
 ) -> Result<RecloneResult, AppError> {
-    git_fetcher::validate_git_url(&url).map_err(AppError::git)?;
+    git_fetcher::validate_backup_remote_url(&url).map_err(AppError::git)?;
     let store = store.inner().clone();
     sync_engine_pref(&store);
     let skills_dir = central_repo::skills_dir();
@@ -665,7 +672,10 @@ fn name_what_was_left(
 ) -> anyhow::Error {
     let kept: Vec<String> = left
         .iter()
-        .filter_map(|(what, path)| path.as_ref().map(|p| format!("{what} kept at {}", p.display())))
+        .filter_map(|(what, path)| {
+            path.as_ref()
+                .map(|p| format!("{what} kept at {}", p.display()))
+        })
         .collect();
     if kept.is_empty() {
         e
@@ -853,6 +863,81 @@ fn migrate_embedded_credentials_unlocked(
     Ok(Some(sanitized))
 }
 
+pub(crate) fn reconcile_skills_index_unlocked(store: &SkillStore) -> anyhow::Result<()> {
+    sync_metadata::cleanup_temporary_files()?;
+    if sync_metadata::has_complete_skill_snapshot() {
+        sync_metadata::reindex_from_metadata_unlocked(store)?;
+        return Ok(());
+    }
+
+    let skills_dir = central_repo::skills_dir();
+    std::fs::create_dir_all(&skills_dir)?;
+
+    // Remove stale DB records whose central directories no longer exist.
+    let existing = store.get_all_skills()?;
+    for skill in existing {
+        if !std::path::Path::new(&skill.central_path).exists() {
+            store.delete_skill(&skill.id)?;
+        }
+    }
+
+    // Add missing DB records for directories present in central repo.
+    for entry in WalkDir::new(&skills_dir)
+        .min_depth(1)
+        .max_depth(6)
+        .into_iter()
+        .filter_entry(|e| e.file_name().to_string_lossy() != ".git")
+        .flatten()
+    {
+        let path = entry.path().to_path_buf();
+        if !entry.file_type().is_dir() || !skill_metadata::is_valid_skill_dir(&path) {
+            continue;
+        }
+
+        let central_path = path.to_string_lossy().to_string();
+        if store.get_skill_by_central_path(&central_path)?.is_some() {
+            continue;
+        }
+
+        let meta = crate::core::skill_metadata::parse_skill_md(&path);
+        let inferred_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown-skill".to_string());
+        let name = meta
+            .name
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(inferred_name);
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let record = crate::core::skill_store::SkillRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            name,
+            description: meta.description,
+            source_type: "import".to_string(),
+            source_ref: Some(central_path.clone()),
+            source_ref_resolved: None,
+            source_subpath: None,
+            source_branch: None,
+            source_revision: None,
+            remote_revision: None,
+            central_path,
+            content_hash: crate::core::content_hash::hash_directory(&path).ok(),
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+            status: "ok".to_string(),
+            update_status: "local_only".to_string(),
+            last_checked_at: Some(now),
+            last_check_error: None,
+        };
+
+        store.insert_skill(&record)?;
+    }
+
+    sync_metadata::write_all_from_db_unlocked(store)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -920,7 +1005,10 @@ mod tests {
         let name = effective_device_name(&env.store);
         assert!(!name.is_empty());
         assert_eq!(
-            env.store.get_setting("backup_device_name").unwrap().as_deref(),
+            env.store
+                .get_setting("backup_device_name")
+                .unwrap()
+                .as_deref(),
             Some(name.as_str())
         );
 
@@ -1021,16 +1109,23 @@ mod tests {
         git(&env.skills_dir, &["init", "-b", "main"]);
         git(
             &env.skills_dir,
-            &["remote", "add", "origin", "https://github.com/acme/repo.git"],
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/repo.git",
+            ],
         );
         env.store
             .set_setting("git_backup_remote_url", "https://github.com/acme/repo.git")
             .unwrap();
 
-        let result =
-            migrate_embedded_credentials_unlocked(&env.store, &env.skills_dir).unwrap();
+        let result = migrate_embedded_credentials_unlocked(&env.store, &env.skills_dir).unwrap();
         assert_eq!(result, None);
-        assert_eq!(origin_url(&env.skills_dir), "https://github.com/acme/repo.git");
+        assert_eq!(
+            origin_url(&env.skills_dir),
+            "https://github.com/acme/repo.git"
+        );
     }
 
     #[test]
@@ -1042,7 +1137,12 @@ mod tests {
         git(&env.skills_dir, &["init", "-b", "main"]);
         git(
             &env.skills_dir,
-            &["remote", "add", "origin", "https://github.com/acme/repo.git"],
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/repo.git",
+            ],
         );
         env.store
             .set_setting("git_backup_remote_url", "https://github.com/acme/repo.git")
@@ -1051,7 +1151,10 @@ mod tests {
         disconnect_local(&env.store, &env.skills_dir).unwrap();
         assert_eq!(origin_url(&env.skills_dir), "");
         assert_eq!(
-            env.store.get_setting("git_backup_remote_url").unwrap().as_deref(),
+            env.store
+                .get_setting("git_backup_remote_url")
+                .unwrap()
+                .as_deref(),
             Some("")
         );
 
@@ -1072,11 +1175,13 @@ mod tests {
             )
             .unwrap();
 
-        let result =
-            migrate_embedded_credentials_unlocked(&env.store, &env.skills_dir).unwrap();
+        let result = migrate_embedded_credentials_unlocked(&env.store, &env.skills_dir).unwrap();
         assert_eq!(result.as_deref(), Some("https://github.com/acme/repo.git"));
         assert_eq!(
-            env.store.get_setting("git_backup_remote_url").unwrap().as_deref(),
+            env.store
+                .get_setting("git_backup_remote_url")
+                .unwrap()
+                .as_deref(),
             Some("https://github.com/acme/repo.git")
         );
     }
@@ -1106,83 +1211,11 @@ mod tests {
         );
         assert_eq!(origin_url(&env.skills_dir), token_url);
         assert_eq!(
-            env.store.get_setting("git_backup_remote_url").unwrap().as_deref(),
+            env.store
+                .get_setting("git_backup_remote_url")
+                .unwrap()
+                .as_deref(),
             Some(token_url)
         );
     }
-}
-
-pub(crate) fn reconcile_skills_index_unlocked(store: &SkillStore) -> anyhow::Result<()> {
-    sync_metadata::cleanup_temporary_files()?;
-    if sync_metadata::has_complete_skill_snapshot() {
-        sync_metadata::reindex_from_metadata_unlocked(store)?;
-        return Ok(());
-    }
-
-    let skills_dir = central_repo::skills_dir();
-    std::fs::create_dir_all(&skills_dir)?;
-
-    // Remove stale DB records whose central directories no longer exist.
-    let existing = store.get_all_skills()?;
-    for skill in existing {
-        if !std::path::Path::new(&skill.central_path).exists() {
-            store.delete_skill(&skill.id)?;
-        }
-    }
-
-    // Add missing DB records for directories present in central repo.
-    for entry in WalkDir::new(&skills_dir)
-        .min_depth(1)
-        .max_depth(6)
-        .into_iter()
-        .filter_entry(|e| e.file_name().to_string_lossy() != ".git")
-        .flatten()
-    {
-        let path = entry.path().to_path_buf();
-        if !entry.file_type().is_dir() || !skill_metadata::is_valid_skill_dir(&path) {
-            continue;
-        }
-
-        let central_path = path.to_string_lossy().to_string();
-        if store.get_skill_by_central_path(&central_path)?.is_some() {
-            continue;
-        }
-
-        let meta = crate::core::skill_metadata::parse_skill_md(&path);
-        let inferred_name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown-skill".to_string());
-        let name = meta
-            .name
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or(inferred_name);
-        let now = chrono::Utc::now().timestamp_millis();
-
-        let record = crate::core::skill_store::SkillRecord {
-            id: uuid::Uuid::new_v4().to_string(),
-            name,
-            description: meta.description,
-            source_type: "import".to_string(),
-            source_ref: Some(central_path.clone()),
-            source_ref_resolved: None,
-            source_subpath: None,
-            source_branch: None,
-            source_revision: None,
-            remote_revision: None,
-            central_path,
-            content_hash: crate::core::content_hash::hash_directory(&path).ok(),
-            enabled: true,
-            created_at: now,
-            updated_at: now,
-            status: "ok".to_string(),
-            update_status: "local_only".to_string(),
-            last_checked_at: Some(now),
-            last_check_error: None,
-        };
-
-        store.insert_skill(&record)?;
-    }
-
-    sync_metadata::write_all_from_db_unlocked(store)
 }

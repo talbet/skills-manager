@@ -118,7 +118,7 @@ Internally, presets are still stored as scenarios for backward-compatible Git Ba
 "$SM" --json skills search "react performance" --limit 5
 ```
 
-Each result has `install_ref` (paste straight into `skills install`), `installs` (popularity proxy), and `skills_sh_url`. Show the top 1–3 with install counts before installing — anything with 10K+ installs is battle-tested; anything under 100 needs a careful look at the source repo.
+Each result has `install_ref` (paste straight into `skills install`), `installs` (popularity proxy), and `skills_sh_url`. Show the top 1–3 with install counts and source repo before installing. Install counts measure popularity, not safety: an installed skill becomes instructions other agents follow, so the user picks what to install, and anything under 100 installs deserves a careful look at the source repo first.
 
 ## Update / Check
 
@@ -317,8 +317,8 @@ Use `agents disable <agent>` when the user wants the whole Agent integration tur
 ### "Find me a skill for X" / "Install a skill that does X"
 
 1. `skills search "X" --limit 5` — show the top 1–3 hits with install counts and source.
-2. If a clear winner: `skills install <install_ref>`.
-3. If ambiguous: ask the user to pick.
+2. Ask the user which one to install (or to confirm the single obvious hit) — never install a search result unprompted.
+3. `skills install <install_ref>` for the one they chose.
 4. Deploy it to the agent(s) the user requested with `skills deploy`.
 5. `skills status <name>` to confirm the library and deployment state.
 

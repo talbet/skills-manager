@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tauri::{Manager, State};
 
 use crate::core::{
-    central_repo, error::AppError, file_manager, log_sanitize, skill_store::SkillStore, skillssh_api,
+    central_repo, error::AppError, file_manager, log_sanitize, skill_store::SkillStore,
+    skillssh_api,
 };
 
 #[derive(serde::Serialize)]
@@ -35,11 +36,7 @@ pub async fn get_settings(
 /// log file layout.
 #[tauri::command]
 pub fn log_startup_event(label: String, elapsed_ms: u64) {
-    let sanitized: String = label
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(64)
-        .collect();
+    let sanitized: String = label.chars().filter(|c| !c.is_control()).take(64).collect();
     let display = if sanitized.is_empty() {
         "(empty)".to_string()
     } else {
@@ -366,9 +363,7 @@ pub async fn get_recent_log_excerpt(app: tauri::AppHandle) -> Result<LogExcerpt,
             for &idx in &alerts {
                 let lo = idx.saturating_sub(context);
                 let hi = (idx + context + 1).min(window.len());
-                for k in lo..hi {
-                    keep[k] = true;
-                }
+                keep[lo..hi].fill(true);
             }
             let mut out = String::new();
             let mut last_kept: Option<usize> = None;
@@ -443,7 +438,10 @@ fn collapse_consecutive_repeats(text: &str) -> String {
         let count = j - i;
         out.push(lines[i].to_string());
         if count >= 3 {
-            out.push(format!("... (line above repeated {} more times)", count - 1));
+            out.push(format!(
+                "... (line above repeated {} more times)",
+                count - 1
+            ));
         } else if count == 2 {
             out.push(lines[i + 1].to_string());
         }
@@ -679,7 +677,10 @@ pub async fn update_install_blocker() -> Result<Option<String>, AppError> {
         // Gatekeeper runs a quarantined copy from a randomized read-only mount
         // that is discarded on quit, so an update written there would vanish
         // rather than apply.
-        if exe.components().any(|c| c.as_os_str() == "AppTranslocation") {
+        if exe
+            .components()
+            .any(|c| c.as_os_str() == "AppTranslocation")
+        {
             return Ok(Some("relocate".to_string()));
         }
         // …/Foo.app/Contents/MacOS/foo — the updater swaps the bundle inside

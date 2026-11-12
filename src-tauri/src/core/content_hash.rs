@@ -4,7 +4,13 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-const IGNORED: &[&str] = &[".git", ".DS_Store", "Thumbs.db", ".gitignore", "__pycache__"];
+const IGNORED: &[&str] = &[
+    ".git",
+    ".DS_Store",
+    "Thumbs.db",
+    ".gitignore",
+    "__pycache__",
+];
 
 /// True for names excluded from a skill's content scope: the exact-match
 /// [`IGNORED`] entries plus compiled-Python artifacts (`*.pyc`). These are
@@ -78,7 +84,7 @@ fn file_stat(meta: &std::fs::Metadata) -> Option<FileStat> {
 
 impl ContentEntry {
     pub fn is_executable(&self) -> bool {
-        self.exec_bits.map_or(false, |bits| bits != 0)
+        self.exec_bits.is_some_and(|bits| bits != 0)
     }
 }
 
@@ -115,11 +121,11 @@ fn walk_content_files(dir: &Path, strict: bool, skip_deps: bool) -> Result<Vec<C
     let mut entries = Vec::new();
     for result in WalkDir::new(dir).into_iter().filter_entry(|e| {
         let name = e.file_name().to_string_lossy();
-        !is_ignored(&name)
-            && !(skip_deps
-                && e.depth() > 0
-                && e.file_type().is_dir()
-                && DEPENDENCY_DIRS.contains(&name.as_ref()))
+        let is_dependency_dir = skip_deps
+            && e.depth() > 0
+            && e.file_type().is_dir()
+            && DEPENDENCY_DIRS.contains(&name.as_ref());
+        !is_ignored(&name) && !is_dependency_dir
     }) {
         match result {
             Ok(entry) if entry.file_type().is_file() => entries.push(entry),
@@ -206,7 +212,7 @@ fn hash_entries_reading(entries: &[ContentEntry], strict: bool) -> Result<String
         // Include executable bit so permission-only changes are detected.
         #[cfg(unix)]
         if let Some(bits) = entry.exec_bits {
-            hasher.update(&bits.to_le_bytes());
+            hasher.update(bits.to_le_bytes());
         }
     }
     Ok(hex::encode(hasher.finalize()))

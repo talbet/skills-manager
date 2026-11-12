@@ -176,7 +176,7 @@ pub async fn get_global_local_skill_document(
         let skill_dir = skills_root.join(&skill_relative_path);
         ensure_agent_skill_path(&skill_dir, &skills_root)?;
 
-        let allowed_roots = vec![skills_root];
+        let allowed_roots = [skills_root];
         let candidates = ["SKILL.md", "skill.md", "CLAUDE.md", "README.md"];
         for candidate in &candidates {
             let file_path = skill_dir.join(candidate);
@@ -485,10 +485,9 @@ pub fn backfill_stranded_agent_targets(store: &SkillStore) -> usize {
 
         for skill in read_agent_local_skills(adapter) {
             let canonical = std::fs::canonicalize(&skill.path).ok();
-            let Some(matched) = all_managed
-                .iter()
-                .find(|managed| source_ref_matches_skill_path(&skill.path, canonical.as_ref(), managed))
-            else {
+            let Some(matched) = all_managed.iter().find(|managed| {
+                source_ref_matches_skill_path(&skill.path, canonical.as_ref(), managed)
+            }) else {
                 continue;
             };
 
@@ -671,9 +670,9 @@ fn delete_agent_local_skill(
     let all_managed = store.get_all_skills().unwrap_or_default();
     let all_targets = store.get_all_targets().unwrap_or_default();
     if let Some(managed) = find_verified_center_match(&skill, &all_managed, &all_targets) {
-        let still_linked = all_targets
-            .iter()
-            .any(|t| t.skill_id == managed.id && target_path_equals_skill(&t.target_path, &skill.path));
+        let still_linked = all_targets.iter().any(|t| {
+            t.skill_id == managed.id && target_path_equals_skill(&t.target_path, &skill.path)
+        });
         if still_linked {
             return Err(AppError::invalid_input(
                 "Skill is managed by Skills Center — remove from the agent first.",
@@ -691,8 +690,8 @@ fn delete_agent_local_skill(
 #[cfg(test)]
 mod tests {
     use super::{
-        backfill_stranded_agent_targets, enrich_center_status,
-        import_agent_local_skill_to_center, update_agent_local_skill_from_center,
+        backfill_stranded_agent_targets, enrich_center_status, import_agent_local_skill_to_center,
+        update_agent_local_skill_from_center,
     };
     use crate::core::content_hash;
     use crate::core::project_scanner::ProjectSkillInfo;
@@ -747,7 +746,7 @@ mod tests {
         .unwrap();
         scenario_service::apply_skills_to_tools(
             &store,
-            &[skill_id.clone()],
+            std::slice::from_ref(&skill_id),
             &["hermes".to_string()],
             scenario_service::BatchApplyMode::Add,
         )

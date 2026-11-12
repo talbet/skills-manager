@@ -122,20 +122,44 @@ fn normalize_err(e: git2::Error, operation: &str) -> anyhow::Error {
     }
 }
 
+/// Open `origin`, or an anonymous remote for `url` when libgit2 cannot load
+/// `origin` from config. libgit2 rejects refspecs that git accepts, such as
+/// the negative `^refs/heads/x-*` some users keep in a global or system
+/// gitconfig under `remote.origin.fetch`; that made every git2 operation fail
+/// with "No origin remote". Returns `true` when the fallback was used.
+fn origin_remote<'r>(repo: &'r git2::Repository, url: &str) -> Result<(git2::Remote<'r>, bool)> {
+    match repo.find_remote("origin") {
+        Ok(remote) => Ok((remote, false)),
+        Err(e)
+            if e.class() == git2::ErrorClass::Invalid || e.code() == git2::ErrorCode::Invalid =>
+        {
+            log::warn!("git2: origin unreadable from config ({e}); using {url} directly");
+            let remote = repo.remote_anonymous(url).context("No origin remote")?;
+            Ok((remote, true))
+        }
+        Err(e) => Err(e).context("No origin remote"),
+    }
+}
+
 /// Fetch `branch` (or the remote's configured refspecs when `None`) from
 /// origin, updating the usual remote-tracking refs.
 pub fn fetch(repo_dir: &Path, branch: Option<&str>, url: &str) -> Result<()> {
     let repo = git2::Repository::open(repo_dir).context("Failed to open repository")?;
-    let mut remote = repo.find_remote("origin").context("No origin remote")?;
+    let (mut remote, anonymous) = origin_remote(&repo, url)?;
     let refspecs: Vec<String> = match branch {
         Some(b) => vec![format!("+refs/heads/{b}:refs/remotes/origin/{b}")],
+        // An anonymous remote has no configured refspecs; use git's default.
+        None if anonymous => vec!["+refs/heads/*:refs/remotes/origin/*".to_string()],
         None => Vec::new(),
     };
     let refs: Vec<&str> = refspecs.iter().map(String::as_str).collect();
     remote
         .fetch(&refs, Some(&mut fetch_options(url)), None)
         .map_err(|e| normalize_err(e, "fetch"))?;
-    log::info!("git2 fetch: done ({})", branch.unwrap_or("configured refspecs"));
+    log::info!(
+        "git2 fetch: done ({})",
+        branch.unwrap_or("configured refspecs")
+    );
     Ok(())
 }
 
@@ -144,7 +168,7 @@ pub fn fetch(repo_dir: &Path, branch: Option<&str>, url: &str) -> Result<()> {
 /// call itself succeeds.
 pub fn push_refs(repo_dir: &Path, refspecs: &[String], url: &str) -> Result<()> {
     let repo = git2::Repository::open(repo_dir).context("Failed to open repository")?;
-    let mut remote = repo.find_remote("origin").context("No origin remote")?;
+    let (mut remote, anonymous) = origin_remote(&repo, url)?;
 
     let rejected: std::sync::Arc<Mutex<Vec<String>>> = Default::default();
     let rejected_in_cb = rejected.clone();
@@ -175,8 +199,33 @@ pub fn push_refs(repo_dir: &Path, refspecs: &[String], url: &str) -> Result<()> 
             rejected.join("; ")
         );
     }
+    if anonymous {
+        update_tracking_refs_after_push(&repo, refspecs);
+    }
     log::info!("git2 push: pushed {} refspec(s)", refspecs.len());
     Ok(())
+}
+
+/// A push through a named remote moves `refs/remotes/origin/<b>` for each
+/// pushed branch; an anonymous one does not. Do it by hand so ahead/behind
+/// status stays right when [`origin_remote`] had to fall back.
+fn update_tracking_refs_after_push(repo: &git2::Repository, refspecs: &[String]) {
+    for spec in refspecs {
+        let spec = spec.trim_start_matches('+');
+        let Some((src, dst)) = spec.split_once(':') else {
+            continue;
+        };
+        let Some(branch) = dst.strip_prefix("refs/heads/") else {
+            continue;
+        };
+        let Ok(oid) = repo.refname_to_id(src) else {
+            continue;
+        };
+        let tracking = format!("refs/remotes/origin/{branch}");
+        if let Err(e) = repo.reference(&tracking, oid, true, "push (git2, anonymous remote)") {
+            log::warn!("git2 push: could not update {tracking}: {e}");
+        }
+    }
 }
 
 /// List remote ref names (heads and tags) for `url` without a local repo.
@@ -230,12 +279,7 @@ mod tests {
         let out = Command::new("git")
             .arg("-C")
             .arg(dir)
-            .args([
-                "-c",
-                "user.email=test@example.com",
-                "-c",
-                "user.name=Test",
-            ])
+            .args(["-c", "user.email=test@example.com", "-c", "user.name=Test"])
             .args(args)
             .output()
             .unwrap();
@@ -257,6 +301,51 @@ mod tests {
         assert!(!applies_to("ssh://git@github.com/a/b.git"));
         assert!(!applies_to("/local/path"));
         PILOT_ENABLED.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn push_and_fetch_survive_a_refspec_libgit2_cannot_parse() {
+        // Git accepts negative refspecs in `remote.origin.fetch`; libgit2
+        // refuses to load such a remote. Both operations must still work.
+        let tmp = tempfile::tempdir().unwrap();
+        let remote = tmp.path().join("remote.git");
+        let work = tmp.path().join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        git(
+            tmp.path(),
+            &["init", "--bare", "--initial-branch=main", "remote.git"],
+        );
+        let url = file_url(&remote);
+
+        git(&work, &["init", "-b", "main"]);
+        git(&work, &["remote", "add", "origin", &url]);
+        git(
+            &work,
+            &[
+                "config",
+                "--add",
+                "remote.origin.fetch",
+                "^refs/heads/queue-*",
+            ],
+        );
+        std::fs::write(work.join("a.txt"), "v1").unwrap();
+        git(&work, &["add", "-A"]);
+        git(&work, &["commit", "-m", "v1"]);
+
+        push_refs(
+            &work,
+            &["refs/heads/main:refs/heads/main".to_string()],
+            &url,
+        )
+        .unwrap();
+        let repo = git2::Repository::open(&work).unwrap();
+        assert_eq!(
+            repo.refname_to_id("refs/remotes/origin/main").unwrap(),
+            repo.refname_to_id("refs/heads/main").unwrap(),
+            "tracking ref must follow the push"
+        );
+        fetch(&work, Some("main"), &url).unwrap();
+        fetch(&work, None, &url).unwrap();
     }
 
     #[test]
@@ -286,8 +375,7 @@ mod tests {
             &work,
             &[
                 "refs/heads/main:refs/heads/main".to_string(),
-                "refs/tags/sm-v-20260101-000000-abc:refs/tags/sm-v-20260101-000000-abc"
-                    .to_string(),
+                "refs/tags/sm-v-20260101-000000-abc:refs/tags/sm-v-20260101-000000-abc".to_string(),
             ],
             &url,
         )
@@ -318,7 +406,12 @@ mod tests {
         std::fs::write(other.join("b.txt"), "from other").unwrap();
         git(&other, &["add", "-A"]);
         git(&other, &["commit", "-m", "v2"]);
-        push_refs(&other, &["refs/heads/main:refs/heads/main".to_string()], &url).unwrap();
+        push_refs(
+            &other,
+            &["refs/heads/main:refs/heads/main".to_string()],
+            &url,
+        )
+        .unwrap();
 
         fetch(&work, Some("main"), &url).unwrap();
         let out = Command::new("git")
@@ -366,8 +459,8 @@ mod tests {
         std::fs::write(b.join("f.txt"), "from b").unwrap();
         git(&b, &["commit", "-am", "b2"]);
 
-        let err = push_refs(&b, &["refs/heads/main:refs/heads/main".to_string()], &url)
-            .unwrap_err();
+        let err =
+            push_refs(&b, &["refs/heads/main:refs/heads/main".to_string()], &url).unwrap_err();
         let msg = format!("{err:#}").to_ascii_lowercase();
         assert!(
             msg.contains("non-fast-forward") || msg.contains("fast-forward"),

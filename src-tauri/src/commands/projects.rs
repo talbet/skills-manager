@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -1385,7 +1385,7 @@ mod tests {
 
         let key = shared_row(&store).key;
         assert_ne!(key, "warp", "the row must be keyed under another agent");
-        disable(&store, &[key.clone()]);
+        disable(&store, std::slice::from_ref(&key));
         let row = shared_row(&store);
         assert_eq!(row.key, key);
         assert!(row.installed, "Warp is installed");

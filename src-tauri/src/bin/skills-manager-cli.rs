@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use app_lib::commands::{presets as preset_cmd, skills as cmd, tools as tool_cmd};
 use app_lib::core::{
     app_state, audit_log::AuditDraft, central_repo, error::AppError, git_backup, git_fetcher,
@@ -1780,7 +1780,13 @@ fn run_update(
     for skill in targets {
         let report = match skill.source_type.as_str() {
             "git" | "skillssh" => {
-                match cmd::update_git_skill_internal(store, &skill.id, proxy_url.as_deref(), None, None) {
+                match cmd::update_git_skill_internal(
+                    store,
+                    &skill.id,
+                    proxy_url.as_deref(),
+                    None,
+                    None,
+                ) {
                     Ok(r) => UpdateReport {
                         skill_id: skill.id.clone(),
                         name: skill.name.clone(),
@@ -1803,28 +1809,30 @@ fn run_update(
                     },
                 }
             }
-            "local" | "import" => match cmd::reimport_local_skill_internal(store, &skill.id, None) {
-                Ok(r) => UpdateReport {
-                    skill_id: skill.id.clone(),
-                    name: skill.name.clone(),
-                    source_type: skill.source_type.clone(),
-                    refreshed: r.pending_removals.is_empty(),
-                    error: None,
-                    held_back_removals: r
-                        .pending_removals
-                        .iter()
-                        .map(|p| format!("{}: {}", p.location, p.path))
-                        .collect(),
-                },
-                Err(e) => UpdateReport {
-                    skill_id: skill.id.clone(),
-                    name: skill.name.clone(),
-                    source_type: skill.source_type.clone(),
-                    refreshed: false,
-                    error: Some(e.message.clone()),
-                    held_back_removals: Vec::new(),
-                },
-            },
+            "local" | "import" => {
+                match cmd::reimport_local_skill_internal(store, &skill.id, None) {
+                    Ok(r) => UpdateReport {
+                        skill_id: skill.id.clone(),
+                        name: skill.name.clone(),
+                        source_type: skill.source_type.clone(),
+                        refreshed: r.pending_removals.is_empty(),
+                        error: None,
+                        held_back_removals: r
+                            .pending_removals
+                            .iter()
+                            .map(|p| format!("{}: {}", p.location, p.path))
+                            .collect(),
+                    },
+                    Err(e) => UpdateReport {
+                        skill_id: skill.id.clone(),
+                        name: skill.name.clone(),
+                        source_type: skill.source_type.clone(),
+                        refreshed: false,
+                        error: Some(e.message.clone()),
+                        held_back_removals: Vec::new(),
+                    },
+                }
+            }
             other => UpdateReport {
                 skill_id: skill.id.clone(),
                 name: skill.name.clone(),
@@ -2042,7 +2050,7 @@ fn run_sync(
             .map_err(map_app_err)?;
         let desired: Vec<_> = desired
             .into_iter()
-            .filter(|target| tool_key.is_none_or(|tool| target.tool == tool))
+            .filter(|target| tool_key.map_or(true, |tool| target.tool == tool))
             .collect();
         scenario_service::preflight_scenario_sync_targets(store, &desired).map_err(map_app_err)?;
         return Ok(SyncReport {
@@ -2147,6 +2155,8 @@ fn run_adopt(
     // before any filesystem work. parse_git_source pulls a subpath out of GitHub
     // /tree/branch/path URLs; --git-subpath is the explicit override (pass ""
     // to mean "skill lives at the repo root").
+    // (clone url, subpath, branch, original url)
+    #[allow(clippy::type_complexity)]
     let resolved_git: Option<(String, Option<String>, Option<String>, Option<String>)> =
         if let Some(url) = git_url {
             git_fetcher::validate_git_url(url)?;
@@ -3475,7 +3485,7 @@ mod tests {
             project_relative_skills_dir: None,
             category: ToolCategory::Coding,
         };
-        tool_service::set_custom_tools(&store, &[test_agent.clone()]).unwrap();
+        tool_service::set_custom_tools(&store, std::slice::from_ref(&test_agent)).unwrap();
         store.set_setting("sync_mode", "copy").unwrap();
         store
             .insert_skill(&SkillRecord {

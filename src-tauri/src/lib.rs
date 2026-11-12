@@ -207,8 +207,16 @@ fn collect_tray_menu_data(store: &core::skill_store::SkillStore) -> TrayMenuData
 }
 
 fn format_status_line(data: &TrayMenuData) -> String {
-    let skill_label = if data.total_skills == 1 { "skill" } else { "skills" };
-    let agent_label = if data.coding_agent_count == 1 { "agent" } else { "agents" };
+    let skill_label = if data.total_skills == 1 {
+        "skill"
+    } else {
+        "skills"
+    };
+    let agent_label = if data.coding_agent_count == 1 {
+        "agent"
+    } else {
+        "agents"
+    };
     format!(
         "{} {} · {} {} connected",
         data.total_skills, skill_label, data.coding_agent_count, agent_label
@@ -242,7 +250,11 @@ fn preset_menu_item_id(preset: &TrayPresetEntry) -> (String, &'static str) {
 }
 
 fn preset_menu_label(preset: &TrayPresetEntry) -> String {
-    let unit = if preset.skill_count == 1 { "skill" } else { "skills" };
+    let unit = if preset.skill_count == 1 {
+        "skill"
+    } else {
+        "skills"
+    };
     match preset.status() {
         TrayPresetStatus::Active => format!("✓ {} ({} {unit})", preset.name, preset.skill_count),
         TrayPresetStatus::Partial => format!(
@@ -570,7 +582,9 @@ fn check_updates_from_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
                 {
                     Ok(lock) => lock,
                     Err(err) => {
-                        log::warn!("Tray update check: failed to acquire repo lock for {skill_id}: {err}");
+                        log::warn!(
+                            "Tray update check: failed to acquire repo lock for {skill_id}: {err}"
+                        );
                         continue;
                     }
                 };
@@ -772,10 +786,7 @@ pub fn restart_app(app: &tauri::AppHandle) {
 fn teardown_before_exit(app: &tauri::AppHandle) {
     QUITTING.store(true, Ordering::SeqCst);
     let _ = app.save_window_state(
-        StateFlags::SIZE
-            | StateFlags::POSITION
-            | StateFlags::MAXIMIZED
-            | StateFlags::FULLSCREEN,
+        StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN,
     );
     if let Some(w) = app.get_webview_window("main") {
         if let Err(err) = w.destroy() {
@@ -807,7 +818,6 @@ pub fn run() {
             restore_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

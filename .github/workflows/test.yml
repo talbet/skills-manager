@@ -61,9 +61,12 @@ jobs:
   # its vendored libdbus build — would surface at release time. A cargo check
   # here catches it on every push instead. Tests still run on macOS/Windows
   # above; this job only needs to prove the Linux target compiles.
+  #
+  # Clippy runs here too: it type-checks like `cargo check` (all targets,
+  # including tests and the CLI) and fails on any lint warning.
   linux-check:
     runs-on: ubuntu-22.04
-    name: Rust check (Linux)
+    name: Rust check + clippy (Linux)
 
     steps:
       - name: Checkout repository
@@ -71,6 +74,8 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          components: clippy
 
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -86,5 +91,5 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings

@@ -145,6 +145,7 @@ fn read_skills_from_dir(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_skills_from_dir_recursive(
     root: &Path,
     current: &Path,

@@ -618,6 +618,14 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let ft = entry.file_type()?;
+        // A library skill can contain symlinks after a git-backup pull from
+        // another device or a shared remote. Copying through them would turn
+        // e.g. `notes -> ~/.ssh/id_ed25519` into a real file in the agent dir
+        // (often a committed project folder). The installer and the content
+        // hash both ignore symlinks, so skip them here too.
+        if ft.is_symlink() {
+            continue;
+        }
         let dest_path = dst.join(entry.file_name());
         if ft.is_dir() {
             let name = entry.file_name();
@@ -994,8 +1002,7 @@ mod tests {
         fs::write(elsewhere.join("mine.md"), "user content").unwrap();
         std::os::unix::fs::symlink(&elsewhere, &tgt).unwrap();
 
-        let err =
-            sync_skill(&src, &tgt, SyncMode::Symlink, ReplacePolicy::NoClobber).unwrap_err();
+        let err = sync_skill(&src, &tgt, SyncMode::Symlink, ReplacePolicy::NoClobber).unwrap_err();
         assert!(err.to_string().contains("Refusing to replace"), "{err}");
         assert_eq!(fs::read_link(&tgt).unwrap(), elsewhere);
         assert!(elsewhere.join("mine.md").exists());
@@ -1015,8 +1022,7 @@ mod tests {
         fs::write(src.join("SKILL.md"), "# hello").unwrap();
         std::os::unix::fs::symlink(&gone, &tgt).unwrap();
 
-        let err =
-            sync_skill(&src, &tgt, SyncMode::Symlink, ReplacePolicy::NoClobber).unwrap_err();
+        let err = sync_skill(&src, &tgt, SyncMode::Symlink, ReplacePolicy::NoClobber).unwrap_err();
         assert!(err.to_string().contains("Refusing to replace"), "{err}");
 
         sync_skill(
@@ -1106,6 +1112,26 @@ mod tests {
 
     // ── copy_dir_recursive ──
 
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_recursive_does_not_follow_symlinks() {
+        let tmp = tempdir().unwrap();
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, "private key").unwrap();
+        let src = tmp.path().join("src");
+        fs::create_dir_all(src.join("sub")).unwrap();
+        fs::write(src.join("SKILL.md"), "# s").unwrap();
+        std::os::unix::fs::symlink(&secret, src.join("notes")).unwrap();
+        std::os::unix::fs::symlink(tmp.path(), src.join("sub/up")).unwrap();
+
+        let dst = tmp.path().join("dst");
+        copy_dir_recursive(&src, &dst).unwrap();
+
+        assert!(dst.join("SKILL.md").exists());
+        assert!(fs::symlink_metadata(dst.join("notes")).is_err());
+        assert!(fs::symlink_metadata(dst.join("sub/up")).is_err());
+    }
+
     #[test]
     fn copy_dir_recursive_skips_dot_git() {
         let tmp = tempdir().unwrap();
@@ -1163,8 +1189,8 @@ mod tests {
         fs::write(real.join("SKILL.md"), "# hello").unwrap();
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
-        let err = sync_skill(&link, &link, SyncMode::Copy, ReplacePolicy::UserConfirmed)
-            .unwrap_err();
+        let err =
+            sync_skill(&link, &link, SyncMode::Copy, ReplacePolicy::UserConfirmed).unwrap_err();
         assert!(err.to_string().contains("same path"), "{err}");
         // The link and everything behind it must survive.
         assert!(link.is_symlink());
@@ -1176,8 +1202,13 @@ mod tests {
         // the plain `src == dst` guard and never reach the lexical comparison.
         let aliased = tmp.path().join("real").join("..").join("link");
         assert_ne!(aliased, link, "alias must not be trivially equal");
-        let err = sync_skill(&aliased, &link, SyncMode::Copy, ReplacePolicy::UserConfirmed)
-            .unwrap_err();
+        let err = sync_skill(
+            &aliased,
+            &link,
+            SyncMode::Copy,
+            ReplacePolicy::UserConfirmed,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("same path"), "{err}");
         assert!(link.is_symlink());
         assert!(real.join("SKILL.md").exists());

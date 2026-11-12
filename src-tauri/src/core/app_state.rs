@@ -273,7 +273,7 @@ fn repoint_after_move(store: &SkillStore, from: &Path, to: &Path) -> Result<usiz
             changed = true;
         }
         for field in [&mut skill.source_ref, &mut skill.source_ref_resolved] {
-            if let Some(path) = field.as_deref().and_then(|p| rebase(p)) {
+            if let Some(path) = field.as_deref().and_then(&rebase) {
                 *field = Some(path);
                 changed = true;
             }
@@ -388,7 +388,6 @@ fn repoint_after_move(store: &SkillStore, from: &Path, to: &Path) -> Result<usiz
 mod tests {
     use super::*;
     use crate::core::skill_store::{ProjectRecord, SkillRecord, SkillTargetRecord};
-
 
     fn skill_at(id: &str, central_path: &Path) -> SkillRecord {
         SkillRecord {
@@ -519,8 +518,11 @@ mod tests {
         std::os::unix::fs::symlink(&elsewhere, project_root.join("foreign")).unwrap();
         // Nested and unrecorded: a category dir inside the project root.
         std::fs::create_dir_all(project_root.join("cat")).unwrap();
-        std::os::unix::fs::symlink(from.join("skills/cat/nested"), project_root.join("cat/nested"))
-            .unwrap();
+        std::os::unix::fs::symlink(
+            from.join("skills/cat/nested"),
+            project_root.join("cat/nested"),
+        )
+        .unwrap();
         store
             .insert_project(&ProjectRecord {
                 id: "p".into(),

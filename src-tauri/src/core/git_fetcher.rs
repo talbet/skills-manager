@@ -52,6 +52,16 @@ pub fn validate_git_url(url: &str) -> Result<()> {
     let trimmed = url.trim();
     let lower = trimmed.to_lowercase();
 
+    // Git reads an argument starting with `-` as an option, so a "URL" like
+    // `--upload-pack=cmd` would become a flag. Whitespace and control
+    // characters have no place in a clone URL either.
+    if trimmed.starts_with('-') {
+        anyhow::bail!("URL must not start with '-'");
+    }
+    if trimmed.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        anyhow::bail!("URL must not contain whitespace or control characters");
+    }
+
     // Explicitly allowed schemes
     if lower.starts_with("https://")
         || lower.starts_with("http://")
@@ -80,6 +90,23 @@ pub fn validate_git_url(url: &str) -> Result<()> {
     anyhow::bail!("URL scheme not allowed: only https, http, ssh, and git@ are permitted");
 }
 
+/// Validate a git-backup remote. Stricter than [`validate_git_url`]: the
+/// `user/repo` shorthand is only expanded on install paths, so for a backup
+/// remote it would reach git as a relative local path. Require an explicit
+/// `https://`, `http://`, `ssh://` or `git@` form.
+pub fn validate_backup_remote_url(url: &str) -> Result<()> {
+    validate_git_url(url)?;
+    let lower = url.trim().to_lowercase();
+    if lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("ssh://")
+        || lower.starts_with("git@")
+    {
+        return Ok(());
+    }
+    anyhow::bail!("Backup remote must be a full URL (https://, ssh:// or git@host:path)");
+}
+
 /// Strip clone-irrelevant differences from a URL so equivalent forms share a
 /// cache slot and pass remote-equality checks. Specifically:
 /// - Trims whitespace and a trailing `/`.
@@ -90,10 +117,7 @@ pub fn validate_git_url(url: &str) -> Result<()> {
 /// paths case-sensitively or distinguish schemes are unaffected.
 fn canonicalize_clone_url(url: &str) -> String {
     let trimmed = url.trim().trim_end_matches('/');
-    trimmed
-        .strip_suffix(".git")
-        .unwrap_or(trimmed)
-        .to_string()
+    trimmed.strip_suffix(".git").unwrap_or(trimmed).to_string()
 }
 
 /// Compute a stable cache directory name for a given clone URL. Hashes the
@@ -240,6 +264,7 @@ fn lock_repo_cache(
     let lock_path = cached_dir.with_extension("lock");
     let file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&lock_path)
@@ -256,10 +281,7 @@ fn lock_repo_cache(
     Ok(RepoCacheLock { _file: file })
 }
 
-fn materialize_cached_repo(
-    cached: &Path,
-    cancel: Option<&Arc<AtomicBool>>,
-) -> Result<PathBuf> {
+fn materialize_cached_repo(cached: &Path, cancel: Option<&Arc<AtomicBool>>) -> Result<PathBuf> {
     let temp_dir =
         std::env::temp_dir().join(format!("{CLONE_TEMP_PREFIX}{}", uuid::Uuid::new_v4()));
 
@@ -1480,10 +1502,7 @@ fn parse_github_tree_url_path(url: &str) -> Option<(String, String)> {
 /// explains. Matching the longest ref across heads and tags at once would let
 /// a tag named `main/v1` swallow a URL that means branch `main` plus subpath
 /// `v1/...`.
-fn split_tree_path_with_known_refs(
-    path: &str,
-    known: &RemoteRefNames,
-) -> (String, Option<String>) {
+fn split_tree_path_with_known_refs(path: &str, known: &RemoteRefNames) -> (String, Option<String>) {
     match_known_ref(path, &known.heads)
         .or_else(|| match_known_ref(path, &known.tags))
         .unwrap_or_else(|| split_tree_branch_path(path, &[]))
@@ -1505,7 +1524,7 @@ fn match_known_ref(path: &str, known: &[String]) -> Option<(String, Option<Strin
             || path
                 .strip_prefix(name.as_str())
                 .is_some_and(|rest| rest.starts_with('/'));
-        if matches && best.is_none_or(|b: &str| name.len() > b.len()) {
+        if matches && best.map_or(true, |b: &str| name.len() > b.len()) {
             best = Some(name);
         }
     }
@@ -1534,7 +1553,10 @@ fn split_tree_branch_path(path: &str, known_branches: &[String]) -> (String, Opt
 
     let mut parts = path.splitn(2, '/');
     let branch = parts.next().unwrap_or("").to_string();
-    let subpath = parts.next().filter(|s| !s.is_empty()).map(|s| s.to_string());
+    let subpath = parts
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     (branch, subpath)
 }
 
@@ -1620,7 +1642,9 @@ fn parse_remote_ref_names(stdout: &str) -> RemoteRefNames {
     for line in stdout.lines() {
         let mut parts = line.split_whitespace();
         let Some(_sha) = parts.next() else { continue };
-        let Some(refname) = parts.next() else { continue };
+        let Some(refname) = parts.next() else {
+            continue;
+        };
         // Peeled entries name the same tag; keep one entry per ref.
         if refname.ends_with("^{}") {
             continue;
@@ -1705,6 +1729,31 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn validate_git_url_rejects_option_injection() {
+        for bad in [
+            "--upload-pack=touch /tmp/x;x/y",
+            "-c core.sshCommand=x/y",
+            "  --mirror/x",
+            "user/repo\nevil",
+            "user/ repo",
+        ] {
+            assert!(validate_git_url(bad).is_err(), "{bad:?} should be rejected");
+        }
+        assert!(validate_git_url("user/repo").is_ok());
+        assert!(validate_git_url("https://github.com/a/b.git").is_ok());
+    }
+
+    #[test]
+    fn validate_backup_remote_url_requires_an_explicit_scheme() {
+        assert!(validate_backup_remote_url("user/repo").is_err());
+        assert!(validate_backup_remote_url("foo/bar").is_err());
+        assert!(validate_backup_remote_url("--upload-pack=x;https://a/b").is_err());
+        assert!(validate_backup_remote_url("https://github.com/a/b.git").is_ok());
+        assert!(validate_backup_remote_url("git@github.com:a/b.git").is_ok());
+        assert!(validate_backup_remote_url("ssh://git@host/a/b").is_ok());
+    }
 
     // ── parse_git_source ──
 
@@ -1911,7 +1960,11 @@ mod tests {
         // Asking for a skill id that doesn't exist MUST error, not silently return
         // the skills/ container (which would install the entire repo as one skill).
         let tmp = tempdir().unwrap();
-        let ask_matt = tmp.path().join("skills").join("engineering").join("ask-matt");
+        let ask_matt = tmp
+            .path()
+            .join("skills")
+            .join("engineering")
+            .join("ask-matt");
         let tdd = tmp.path().join("skills").join("engineering").join("tdd");
         fs::create_dir_all(&ask_matt).unwrap();
         fs::write(ask_matt.join("SKILL.md"), "---\nname: ask-matt\n---").unwrap();
@@ -2043,10 +2096,18 @@ mod tests {
             .expect("libgit2 must be able to clone a tag");
         let repo = git2::Repository::open(&dest).unwrap();
         assert_eq!(
-            repo.head().unwrap().peel_to_commit().unwrap().id().to_string(),
+            repo.head()
+                .unwrap()
+                .peel_to_commit()
+                .unwrap()
+                .id()
+                .to_string(),
             TAG_COMMIT
         );
-        assert!(dest.join("package.json").exists(), "working tree checked out");
+        assert!(
+            dest.join("package.json").exists(),
+            "working tree checked out"
+        );
     }
 
     #[test]
@@ -2147,9 +2208,7 @@ mod tests {
     fn a_tag_cannot_steal_a_url_that_a_branch_explains() {
         // Longest-match across heads and tags at once would read this as tag
         // `main/v1` + subpath `skills`, silently re-pointing the skill.
-        let refs = parse_remote_ref_names(
-            "aaaa\trefs/heads/main\nbbbb\trefs/tags/main/v1\n",
-        );
+        let refs = parse_remote_ref_names("aaaa\trefs/heads/main\nbbbb\trefs/tags/main/v1\n");
         let (branch, subpath) = split_tree_path_with_known_refs("main/v1/skills", &refs);
         assert_eq!(branch, "main");
         assert_eq!(subpath.as_deref(), Some("v1/skills"));
@@ -2157,9 +2216,8 @@ mod tests {
 
     #[test]
     fn a_slash_tag_still_resolves_when_no_branch_matches() {
-        let refs = parse_remote_ref_names(
-            "aaaa\trefs/heads/master\nbbbb\trefs/tags/release/v0.8.0\n",
-        );
+        let refs =
+            parse_remote_ref_names("aaaa\trefs/heads/master\nbbbb\trefs/tags/release/v0.8.0\n");
         let (branch, subpath) =
             split_tree_path_with_known_refs("release/v0.8.0/skills/herdr", &refs);
         assert_eq!(branch, "release/v0.8.0");

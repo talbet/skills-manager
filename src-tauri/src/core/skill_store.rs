@@ -2,7 +2,7 @@ use anyhow::Result;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use super::audit_log::{AuditDraft, AuditEntry, MAX_ENTRIES as AUDIT_MAX_ENTRIES};
 use super::crypto;
@@ -133,10 +133,22 @@ impl SkillStore {
         })
     }
 
+    /// Lock the shared connection. A panic while the lock was held poisons
+    /// the mutex; recovering instead of unwrapping keeps one failed command
+    /// from turning every later database call into a panic. The connection
+    /// itself stays consistent: an open `Transaction` rolls back on unwind.
+    fn conn(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(|poisoned| {
+            log::warn!("skill store: recovering from a poisoned connection lock");
+            self.conn.clear_poison();
+            poisoned.into_inner()
+        })
+    }
+
     // ── Skills CRUD ──
 
     pub fn insert_skill(&self, skill: &SkillRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO skills (
                 id, name, description, source_type, source_ref, source_ref_resolved, source_subpath,
@@ -170,7 +182,7 @@ impl SkillStore {
     }
 
     pub fn upsert_skill(&self, skill: &SkillRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO skills (
                 id, name, description, source_type, source_ref, source_ref_resolved, source_subpath,
@@ -222,7 +234,7 @@ impl SkillStore {
     }
 
     pub fn get_all_skills(&self) -> Result<Vec<SkillRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, description, source_type, source_ref, source_ref_resolved, source_subpath,
                     source_branch, source_revision, remote_revision, central_path, content_hash, enabled,
@@ -234,7 +246,7 @@ impl SkillStore {
     }
 
     pub fn get_skill_by_id(&self, id: &str) -> Result<Option<SkillRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, description, source_type, source_ref, source_ref_resolved, source_subpath,
                     source_branch, source_revision, remote_revision, central_path, content_hash, enabled,
@@ -246,7 +258,7 @@ impl SkillStore {
     }
 
     pub fn get_skill_by_central_path(&self, central_path: &str) -> Result<Option<SkillRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, description, source_type, source_ref, source_ref_resolved, source_subpath,
                     source_branch, source_revision, remote_revision, central_path, content_hash, enabled,
@@ -262,7 +274,7 @@ impl SkillStore {
         source_type: &str,
         source_ref: &str,
     ) -> Result<Option<SkillRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, description, source_type, source_ref, source_ref_resolved, source_subpath,
                     source_branch, source_revision, remote_revision, central_path, content_hash, enabled,
@@ -282,7 +294,7 @@ impl SkillStore {
         source_branch: Option<&str>,
         source_revision: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE skills
@@ -303,7 +315,7 @@ impl SkillStore {
     /// Record a newer revision for content that did not change. `updated_at` is
     /// left alone: nothing in the library was touched.
     pub fn update_skill_source_revision(&self, id: &str, source_revision: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE skills SET source_revision = ?1 WHERE id = ?2",
             params![source_revision, id],
@@ -318,7 +330,7 @@ impl SkillStore {
         update_status: &str,
         last_check_error: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE skills
@@ -330,7 +342,7 @@ impl SkillStore {
     }
 
     pub fn update_skill_update_status(&self, id: &str, update_status: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE skills SET update_status = ?1 WHERE id = ?2",
             params![update_status, id],
@@ -339,7 +351,7 @@ impl SkillStore {
     }
 
     pub fn update_skill_enabled(&self, id: &str, enabled: bool) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE skills SET enabled = ?1, updated_at = ?2 WHERE id = ?3",
@@ -359,7 +371,7 @@ impl SkillStore {
         content_hash: Option<&str>,
         update_status: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE skills
@@ -381,7 +393,7 @@ impl SkillStore {
     }
 
     pub fn update_skill_source_ref(&self, id: &str, source_ref: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE skills SET source_ref = ?1 WHERE id = ?2",
             params![source_ref, id],
@@ -405,7 +417,7 @@ impl SkillStore {
         content_hash: Option<&str>,
         update_status: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE skills
@@ -436,7 +448,7 @@ impl SkillStore {
     /// Move a record to a renamed library folder. Only the location and the
     /// display name change; source lineage, hash and status are untouched.
     pub fn update_skill_location(&self, id: &str, name: &str, central_path: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE skills SET name = ?1, central_path = ?2, updated_at = ?3 WHERE id = ?4",
@@ -451,7 +463,7 @@ impl SkillStore {
     /// with the UNIQUE constraint mid-loop — e.g. skill A moving onto the
     /// path skill B is about to vacate.
     pub fn park_central_paths_for_reindex(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE skills SET central_path = 'sm-reindex-parked://' || id",
             [],
@@ -463,7 +475,7 @@ impl SkillStore {
     pub fn get_content_stamps(
         &self,
     ) -> Result<std::collections::HashMap<String, (String, String)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt =
             conn.prepare("SELECT skill_id, stamp, content_hash FROM skill_content_stamps")?;
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?))))?;
@@ -471,7 +483,7 @@ impl SkillStore {
     }
 
     pub fn set_content_stamp(&self, skill_id: &str, stamp: &str, content_hash: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR REPLACE INTO skill_content_stamps (skill_id, stamp, content_hash)
              VALUES (?1, ?2, ?3)",
@@ -481,7 +493,7 @@ impl SkillStore {
     }
 
     pub fn delete_skill(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute("DELETE FROM skills WHERE id = ?1", params![id])?;
         Ok(())
     }
@@ -489,7 +501,7 @@ impl SkillStore {
     // ── Targets ──
 
     pub fn insert_target(&self, target: &SkillTargetRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR REPLACE INTO skill_targets (id, skill_id, tool, target_path, mode, status, synced_at, last_error, source_hash)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -509,7 +521,7 @@ impl SkillStore {
     }
 
     pub fn get_targets_for_skill(&self, skill_id: &str) -> Result<Vec<SkillTargetRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, skill_id, tool, target_path, mode, status, synced_at, last_error, source_hash FROM skill_targets WHERE skill_id = ?1",
         )?;
@@ -530,7 +542,7 @@ impl SkillStore {
     }
 
     pub fn get_all_targets(&self) -> Result<Vec<SkillTargetRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, skill_id, tool, target_path, mode, status, synced_at, last_error, source_hash FROM skill_targets",
         )?;
@@ -551,7 +563,7 @@ impl SkillStore {
     }
 
     pub fn delete_target(&self, skill_id: &str, tool: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM skill_targets WHERE skill_id = ?1 AND tool = ?2",
             params![skill_id, tool],
@@ -562,13 +574,13 @@ impl SkillStore {
     // ── Discovered Skills ──
 
     pub fn clear_discovered(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute("DELETE FROM discovered_skills", [])?;
         Ok(())
     }
 
     pub fn insert_discovered(&self, rec: &DiscoveredSkillRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO discovered_skills (id, tool, found_path, name_guess, fingerprint, found_at, imported_skill_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -586,7 +598,7 @@ impl SkillStore {
     }
 
     pub fn get_all_discovered(&self) -> Result<Vec<DiscoveredSkillRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, tool, found_path, name_guess, fingerprint, found_at, imported_skill_id FROM discovered_skills",
         )?;
@@ -607,7 +619,7 @@ impl SkillStore {
     // ── Cache ──
 
     pub fn get_cache(&self, key: &str, ttl_secs: i64) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp();
         let mut stmt = conn
             .prepare("SELECT data FROM skillssh_cache WHERE cache_key = ?1 AND fetched_at > ?2")?;
@@ -617,7 +629,7 @@ impl SkillStore {
     }
 
     pub fn set_cache(&self, key: &str, data: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp();
         conn.execute(
             "INSERT OR REPLACE INTO skillssh_cache (cache_key, data, fetched_at) VALUES (?1, ?2, ?3)",
@@ -631,7 +643,7 @@ impl SkillStore {
     // an input to merge decisions.
 
     pub fn replace_pending_conflicts(&self, rows: &[PendingConflictRow]) -> Result<()> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn();
         let tx = conn.transaction()?;
         tx.execute("DELETE FROM pending_conflicts", [])?;
         for row in rows {
@@ -639,7 +651,12 @@ impl SkillStore {
                 "INSERT OR REPLACE INTO pending_conflicts
                  (skill_id, theirs_commit, theirs_path, detected_at)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![row.skill_id, row.theirs_commit, row.theirs_path, row.detected_at],
+                params![
+                    row.skill_id,
+                    row.theirs_commit,
+                    row.theirs_path,
+                    row.detected_at
+                ],
             )?;
         }
         tx.commit()?;
@@ -647,7 +664,7 @@ impl SkillStore {
     }
 
     pub fn list_pending_conflicts(&self) -> Result<Vec<PendingConflictRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT skill_id, theirs_commit, theirs_path, detected_at
              FROM pending_conflicts ORDER BY detected_at DESC, skill_id",
@@ -678,7 +695,7 @@ impl SkillStore {
         // Read the raw stored value while holding the lock, then release it
         // before any write-back so we don't re-enter the mutex.
         let raw = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn();
             let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
             let mut rows = stmt.query_map(params![key], |row| row.get::<_, String>(0))?;
             rows.next().and_then(|r| r.ok())
@@ -696,7 +713,7 @@ impl SkillStore {
             } else {
                 // Backward compat: old plaintext value — upgrade it silently.
                 let encrypted = crypto::encrypt(&self.secret_key, &value)?;
-                let conn = self.conn.lock().unwrap();
+                let conn = self.conn();
                 conn.execute(
                     "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
                     params![key, encrypted],
@@ -714,7 +731,7 @@ impl SkillStore {
         } else {
             value.to_string()
         };
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
             params![key, stored],
@@ -726,7 +743,7 @@ impl SkillStore {
         if old_key == new_key {
             return Ok(());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         // scenario_skill_tools has a composite PK (scenario_id, skill_id, tool). If both old/new
         // rows exist for the same skill in the same scenario, keep the new-key row.
@@ -772,7 +789,7 @@ impl SkillStore {
     }
 
     pub fn has_tool_key_references(&self, key: &str) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT EXISTS(SELECT 1 FROM skill_targets WHERE tool = ?1)
              OR EXISTS(SELECT 1 FROM discovered_skills WHERE tool = ?1)
@@ -785,7 +802,7 @@ impl SkillStore {
     // ── Scenarios ──
 
     pub fn insert_scenario(&self, scenario: &ScenarioRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO scenarios (id, name, description, icon, sort_order, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -803,7 +820,7 @@ impl SkillStore {
     }
 
     pub fn get_all_scenarios(&self) -> Result<Vec<ScenarioRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, description, icon, sort_order, created_at, updated_at FROM scenarios ORDER BY sort_order, created_at",
         )?;
@@ -828,7 +845,7 @@ impl SkillStore {
         description: Option<&str>,
         icon: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE scenarios SET name = ?1, description = ?2, icon = ?3, updated_at = ?4 WHERE id = ?5",
@@ -838,13 +855,13 @@ impl SkillStore {
     }
 
     pub fn delete_scenario(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute("DELETE FROM scenarios WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     pub fn reorder_scenarios(&self, ids: &[String]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let tx = conn.unchecked_transaction()?;
         for (i, id) in ids.iter().enumerate() {
             tx.execute(
@@ -857,7 +874,7 @@ impl SkillStore {
     }
 
     pub fn reorder_projects(&self, ids: &[String]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let tx = conn.unchecked_transaction()?;
         for (i, id) in ids.iter().enumerate() {
             tx.execute(
@@ -872,7 +889,7 @@ impl SkillStore {
     // ── Scenario-Skill mapping ──
 
     pub fn add_skill_to_scenario(&self, scenario_id: &str, skill_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "INSERT OR IGNORE INTO scenario_skills (scenario_id, skill_id, added_at) VALUES (?1, ?2, ?3)",
@@ -882,7 +899,7 @@ impl SkillStore {
     }
 
     pub fn remove_skill_from_scenario(&self, scenario_id: &str, skill_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM scenario_skills WHERE scenario_id = ?1 AND skill_id = ?2",
             params![scenario_id, skill_id],
@@ -891,7 +908,7 @@ impl SkillStore {
     }
 
     pub fn reorder_scenario_skills(&self, scenario_id: &str, skill_ids: &[String]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let tx = conn.unchecked_transaction()?;
         for (i, skill_id) in skill_ids.iter().enumerate() {
             tx.execute(
@@ -904,7 +921,7 @@ impl SkillStore {
     }
 
     pub fn get_skill_ids_for_scenario(&self, scenario_id: &str) -> Result<Vec<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT skill_id FROM scenario_skills WHERE scenario_id = ?1 ORDER BY sort_order, added_at",
         )?;
@@ -913,7 +930,7 @@ impl SkillStore {
     }
 
     pub fn get_skills_for_scenario(&self, scenario_id: &str) -> Result<Vec<SkillRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT s.id, s.name, s.description, s.source_type, s.source_ref, s.source_ref_resolved, s.source_subpath,
                     s.source_branch, s.source_revision, s.remote_revision, s.central_path, s.content_hash, s.enabled,
@@ -928,7 +945,7 @@ impl SkillStore {
     }
 
     pub fn count_skills_for_scenario(&self, scenario_id: &str) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM scenario_skills WHERE scenario_id = ?1",
             params![scenario_id],
@@ -938,7 +955,7 @@ impl SkillStore {
     }
 
     pub fn get_scenarios_for_skill(&self, skill_id: &str) -> Result<Vec<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt =
             conn.prepare("SELECT scenario_id FROM scenario_skills WHERE skill_id = ?1")?;
         let rows = stmt.query_map(params![skill_id], |row| row.get::<_, String>(0))?;
@@ -955,7 +972,7 @@ impl SkillStore {
             return Ok(());
         }
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut existing_stmt = conn.prepare(
             "SELECT tool
              FROM scenario_skill_tools
@@ -999,7 +1016,7 @@ impl SkillStore {
         tool: &str,
         enabled: bool,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO scenario_skill_tools (scenario_id, skill_id, tool, enabled, updated_at)
@@ -1015,7 +1032,7 @@ impl SkillStore {
         &self,
         scenarios: &[super::sync_metadata::ScenarioMetaFile],
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let tx = conn.unchecked_transaction()?;
         let metadata_ids: std::collections::HashSet<&str> =
             scenarios.iter().map(|s| s.scenario_id.as_str()).collect();
@@ -1059,7 +1076,7 @@ impl SkillStore {
         &self,
         memberships: &[super::sync_metadata::ScenarioSkillMetaFile],
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let tx = conn.unchecked_transaction()?;
         tx.execute("DELETE FROM scenario_skill_tools", [])?;
         tx.execute("DELETE FROM scenario_skills", [])?;
@@ -1124,7 +1141,7 @@ impl SkillStore {
         scenario_id: &str,
         skill_id: &str,
     ) -> Result<Vec<ScenarioSkillToolToggleRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT scenario_id, skill_id, tool, enabled, updated_at
              FROM scenario_skill_tools
@@ -1148,7 +1165,7 @@ impl SkillStore {
         scenario_id: &str,
         skill_id: &str,
     ) -> Result<Vec<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT tool
              FROM scenario_skill_tools
@@ -1163,7 +1180,7 @@ impl SkillStore {
     // ── Active Scenario ──
 
     pub fn get_active_scenario_id(&self) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt =
             conn.prepare("SELECT scenario_id FROM active_scenario WHERE key = 'current'")?;
         let mut rows = stmt.query_map([], |row| row.get::<_, Option<String>>(0))?;
@@ -1171,13 +1188,13 @@ impl SkillStore {
     }
 
     pub fn clear_active_scenario(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute("DELETE FROM active_scenario WHERE key = 'current'", [])?;
         Ok(())
     }
 
     pub fn set_active_scenario(&self, scenario_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR REPLACE INTO active_scenario (key, scenario_id) VALUES ('current', ?1)",
             params![scenario_id],
@@ -1188,7 +1205,7 @@ impl SkillStore {
     // ── Projects ──
 
     pub fn insert_project(&self, project: &ProjectRecord) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO projects (
                 id, name, path, workspace_type, linked_agent_key, linked_agent_name, disabled_path,
@@ -1212,7 +1229,7 @@ impl SkillStore {
     }
 
     pub fn get_all_projects(&self) -> Result<Vec<ProjectRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, path, workspace_type, linked_agent_key, linked_agent_name, disabled_path,
                     sort_order, created_at, updated_at
@@ -1237,7 +1254,7 @@ impl SkillStore {
     }
 
     pub fn get_project_by_id(&self, id: &str) -> Result<Option<ProjectRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, path, workspace_type, linked_agent_key, linked_agent_name, disabled_path,
                     sort_order, created_at, updated_at
@@ -1262,7 +1279,7 @@ impl SkillStore {
     }
 
     pub fn delete_project(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
         Ok(())
     }
@@ -1270,14 +1287,14 @@ impl SkillStore {
     // ── Skill Tags ──
 
     pub fn get_all_tags(&self) -> Result<Vec<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare("SELECT DISTINCT tag FROM skill_tags ORDER BY tag")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
     pub fn set_tags_for_skill(&self, skill_id: &str, tags: &[String]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM skill_tags WHERE skill_id = ?1",
             params![skill_id],
@@ -1295,7 +1312,7 @@ impl SkillStore {
     }
 
     pub fn get_tags_map(&self) -> Result<std::collections::HashMap<String, Vec<String>>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare("SELECT skill_id, tag FROM skill_tags ORDER BY tag")?;
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -1313,7 +1330,7 @@ impl SkillStore {
     /// If a skill already has `new`, the rows are merged (no duplicate) thanks
     /// to `UPDATE OR IGNORE` followed by removing any leftover old rows.
     pub fn rename_tag(&self, old: &str, new: &str) -> Result<Vec<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let affected: Vec<String> = {
             let mut stmt =
                 conn.prepare("SELECT DISTINCT skill_id FROM skill_tags WHERE tag = ?1")?;
@@ -1340,7 +1357,7 @@ impl SkillStore {
     /// Globally remove a tag from every skill that carries it. Returns the ids
     /// of the affected skills so the caller can refresh their metadata.
     pub fn delete_tag(&self, name: &str) -> Result<Vec<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let affected: Vec<String> = {
             let mut stmt =
                 conn.prepare("SELECT DISTINCT skill_id FROM skill_tags WHERE tag = ?1")?;
@@ -1362,10 +1379,7 @@ impl SkillStore {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let conn = match self.conn.lock() {
-            Ok(c) => c,
-            Err(_) => return,
-        };
+        let conn = self.conn();
         let insert = conn.execute(
             "INSERT INTO audit_log (ts, action, skill_id, skill_name, tool, success, detail)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -1394,7 +1408,7 @@ impl SkillStore {
     /// Read the most recent audit entries (newest first). When `limit` is
     /// `None`, returns everything.
     pub fn list_audit(&self, limit: Option<i64>) -> Result<Vec<AuditEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let sql = if limit.is_some() {
             "SELECT id, ts, action, skill_id, skill_name, tool, success, detail
              FROM audit_log ORDER BY id DESC LIMIT ?1"
@@ -1516,22 +1530,23 @@ mod scenario_membership_tests {
         let tmp = tempdir().unwrap();
         let store = SkillStore::new(&tmp.path().join("test.db")).unwrap();
 
-        store.insert_scenario(&ScenarioRecord {
-            id: "s1".to_string(),
-            name: "S1".to_string(),
-            description: None,
-            icon: None,
-            sort_order: 0,
-            created_at: 1,
-            updated_at: 1,
-        })
-        .unwrap();
+        store
+            .insert_scenario(&ScenarioRecord {
+                id: "s1".to_string(),
+                name: "S1".to_string(),
+                description: None,
+                icon: None,
+                sort_order: 0,
+                created_at: 1,
+                updated_at: 1,
+            })
+            .unwrap();
         store.upsert_skill(&sample_skill("k1")).unwrap();
 
         let memberships = vec![
-            membership("s1", "k1"),       // valid
-            membership("s1", "ghost"),    // skill missing
-            membership("ghost-s", "k1"),  // scenario missing
+            membership("s1", "k1"),      // valid
+            membership("s1", "ghost"),   // skill missing
+            membership("ghost-s", "k1"), // scenario missing
         ];
 
         // Must not panic with a FOREIGN KEY constraint failure.
@@ -1541,7 +1556,9 @@ mod scenario_membership_tests {
 
         assert_eq!(store.get_skill_ids_for_scenario("s1").unwrap(), vec!["k1"]);
         assert_eq!(
-            store.get_enabled_tools_for_scenario_skill("s1", "k1").unwrap(),
+            store
+                .get_enabled_tools_for_scenario_skill("s1", "k1")
+                .unwrap(),
             vec!["ToolA"]
         );
         assert!(store
@@ -1656,6 +1673,30 @@ mod tag_tests {
         assert_eq!(store.get_all_tags().unwrap(), vec!["keep".to_string()]);
         let map = store.get_tags_map().unwrap();
         assert_eq!(map.get("a").unwrap(), &vec!["keep".to_string()]);
-        assert!(map.get("b").is_none());
+        assert!(!map.contains_key("b"));
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+
+    #[test]
+    fn a_panic_while_holding_the_lock_does_not_break_later_calls() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(SkillStore::new(&tmp.path().join("test.db")).unwrap());
+        store.set_setting("k", "before").unwrap();
+
+        let poisoner = store.clone();
+        let result = std::thread::spawn(move || {
+            let _guard = poisoner.conn();
+            panic!("simulated failure while holding the connection");
+        })
+        .join();
+        assert!(result.is_err());
+
+        assert_eq!(store.get_setting("k").unwrap().as_deref(), Some("before"));
+        store.set_setting("k", "after").unwrap();
+        assert_eq!(store.get_setting("k").unwrap().as_deref(), Some("after"));
     }
 }

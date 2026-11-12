@@ -44,19 +44,32 @@ fn is_symlink_to_central(path: &Path) -> bool {
 /// Recursively walk `dir` and return all subdirectories that contain SKILL.md.
 /// Stops descending when a skill dir is found (skills don't nest). Skips
 /// `.git` / `node_modules` / `.hub` and guards against symlink cycles.
+///
+/// `dir` is usually a freshly fetched, untrusted repository, so a symlinked
+/// entry is only followed when it resolves inside `dir`. A link such as
+/// `skills/x -> /` or `skills/x -> ../../..` is skipped; otherwise the walk
+/// would crawl the user's disk and offer local folders for install.
 pub fn collect_skill_dirs(dir: &Path) -> Vec<PathBuf> {
     let mut results = Vec::new();
     let mut visited = HashSet::new();
-    collect_skill_dirs_recursive(dir, &mut visited, &mut results);
+    let root = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    collect_skill_dirs_recursive(dir, Some(&root), &mut visited, &mut results);
     results
 }
 
+/// `confine_to`, when set, is the canonical root that every followed path
+/// must stay inside. Local agent directories pass `None`: there a symlink to a
+/// folder elsewhere on disk is the user's own choice.
 fn collect_skill_dirs_recursive(
     dir: &Path,
+    confine_to: Option<&Path>,
     visited: &mut HashSet<PathBuf>,
     results: &mut Vec<PathBuf>,
 ) {
     let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if confine_to.is_some_and(|root| !canonical.starts_with(root)) {
+        return;
+    }
     if !visited.insert(canonical) {
         return;
     }
@@ -77,11 +90,19 @@ fn collect_skill_dirs_recursive(
         if is_symlink_to_central(&path) {
             continue;
         }
+        if let Some(root) = confine_to {
+            if path.is_symlink() {
+                match std::fs::canonicalize(&path) {
+                    Ok(target) if target.starts_with(root) => {}
+                    _ => continue,
+                }
+            }
+        }
         if skill_metadata::is_valid_skill_dir(&path) {
             results.push(path);
             continue;
         }
-        collect_skill_dirs_recursive(&path, visited, results);
+        collect_skill_dirs_recursive(&path, confine_to, visited, results);
     }
 }
 
@@ -149,7 +170,7 @@ fn scan_recursive_dir(
 ) {
     let mut skill_dirs = Vec::new();
     let mut visited = HashSet::new();
-    collect_skill_dirs_recursive(scan_dir, &mut visited, &mut skill_dirs);
+    collect_skill_dirs_recursive(scan_dir, None, &mut visited, &mut skill_dirs);
     for path in skill_dirs {
         push_discovered(adapter_key, path, managed_paths, discovered);
     }
@@ -270,7 +291,7 @@ mod tests {
     fn run(root: &Path) -> Vec<PathBuf> {
         let mut results = Vec::new();
         let mut visited = HashSet::new();
-        collect_skill_dirs_recursive(root, &mut visited, &mut results);
+        collect_skill_dirs_recursive(root, None, &mut visited, &mut results);
         results.sort();
         results
     }
@@ -348,6 +369,70 @@ mod tests {
         let results = run(tmp.path());
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].file_name().unwrap(), "real-skill");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fetched_repo_symlink_escaping_root_is_not_followed() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempdir().unwrap();
+        write_skill(&outside.path().join("private-skill"));
+        let repo = tempdir().unwrap();
+        write_skill(&repo.path().join("skills/real"));
+        // An untrusted repo pointing a category and a skill outside itself.
+        symlink(outside.path(), repo.path().join("skills/escape-dir")).unwrap();
+        symlink(
+            outside.path().join("private-skill"),
+            repo.path().join("skills/escape-skill"),
+        )
+        .unwrap();
+
+        let results = collect_skill_dirs(repo.path());
+        assert_eq!(results.len(), 1, "{results:?}");
+        assert_eq!(results[0].file_name().unwrap(), "real");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fetched_repo_symlink_is_followed_only_within_scan_root() {
+        use std::os::unix::fs::symlink;
+
+        // Common layout: `skills/inner -> ../plugins/p/skills/inner`.
+        let repo = tempdir().unwrap();
+        write_skill(&repo.path().join("plugins/p/skills/inner"));
+        fs::create_dir_all(repo.path().join("skills")).unwrap();
+        symlink(
+            repo.path().join("plugins/p/skills/inner"),
+            repo.path().join("skills/inner"),
+        )
+        .unwrap();
+
+        // Scanning the whole repo follows the link: its target is inside.
+        let from_repo = collect_skill_dirs(repo.path());
+        assert!(
+            from_repo.iter().any(|p| p.ends_with("skills/inner")),
+            "{from_repo:?}"
+        );
+        // Scanning only `skills/` does not: the target is outside that root.
+        assert!(collect_skill_dirs(&repo.path().join("skills")).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_agent_scan_still_follows_outside_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempdir().unwrap();
+        write_skill(&outside.path().join("dev-skill"));
+        let agent = tempdir().unwrap();
+        symlink(
+            outside.path().join("dev-skill"),
+            agent.path().join("dev-skill"),
+        )
+        .unwrap();
+
+        assert_eq!(run(agent.path()).len(), 1);
     }
 
     #[test]
