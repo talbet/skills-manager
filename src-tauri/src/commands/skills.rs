@@ -984,8 +984,9 @@ pub fn install_site_skill_dir(
     };
     let (install_name, destination) =
         resolve_install_target(store, "well-known", &source_ref, &base_name)?;
-    let result = installer::install_skill_dir_to_destination(skill_dir, &install_name, &destination)
-        .map_err(AppError::io)?;
+    let result =
+        installer::install_skill_dir_to_destination(skill_dir, &install_name, &destination)
+            .map_err(AppError::io)?;
     let metadata = InstallSourceMetadata {
         source_type: "well-known".to_string(),
         source_ref: Some(source_ref),
@@ -1777,14 +1778,13 @@ pub async fn update_skill(
     let _cancel_guard = CancelRegistrationGuard::new(registry.clone(), cancel_key);
 
     tauri::async_runtime::spawn_blocking(move || {
-        let outcome =
-            update_git_skill_internal(
-                &store,
-                &skill_id,
-                proxy_url.as_deref(),
-                Some(&cancel),
-                approved_removals.as_deref(),
-            );
+        let outcome = update_git_skill_internal(
+            &store,
+            &skill_id,
+            proxy_url.as_deref(),
+            Some(&cancel),
+            approved_removals.as_deref(),
+        );
         log_update_outcome(&store, &skill_id, "git", outcome.as_ref());
         outcome
     })
@@ -1831,8 +1831,13 @@ pub async fn batch_update_skills(
 
             match skill.source_type.as_str() {
                 "git" | "skillssh" => {
-                    let outcome =
-                        update_git_skill_internal(&store, &skill_id, proxy_url.as_deref(), None, None);
+                    let outcome = update_git_skill_internal(
+                        &store,
+                        &skill_id,
+                        proxy_url.as_deref(),
+                        None,
+                        None,
+                    );
                     log_update_outcome(&store, &skill_id, "git", outcome.as_ref());
                     match outcome {
                         Ok(result) if !result.pending_removals.is_empty() => {
@@ -2189,7 +2194,11 @@ pub fn update_git_skill_internal(
         };
         let staged_guard = StagedPathGuard::new(&staged_path, install_result.is_some());
 
-        let pending = pending_removals_for(store, &skill, install_result.is_some().then_some(staged_path.as_path()))?;
+        let pending = pending_removals_for(
+            store,
+            &skill,
+            install_result.is_some().then_some(staged_path.as_path()),
+        )?;
 
         // A confirmation answers one exact question: this revision, this list
         // as shown. It closes the window while the dialog is open — a push, or
@@ -2536,12 +2545,8 @@ pub fn set_git_source_internal(
                 } else {
                     skill.remote_revision.as_deref()
                 };
-                let _ = store.update_skill_check_state(
-                    skill_id,
-                    revision,
-                    "error",
-                    Some(&e.message),
-                );
+                let _ =
+                    store.update_skill_check_state(skill_id, revision, "error", Some(&e.message));
             }
             Err(e)
         }
@@ -3828,8 +3833,7 @@ mod tests {
         fs::write(central.join("appeared-later.txt"), "also mine").unwrap();
 
         // The old approval must not cover it.
-        let second =
-            reimport_local_skill_internal(&repo.store, "skill-1", Some(&shown)).unwrap();
+        let second = reimport_local_skill_internal(&repo.store, "skill-1", Some(&shown)).unwrap();
         assert_eq!(
             second.pending_removals.len(),
             2,
@@ -3840,10 +3844,12 @@ mod tests {
 
         // Approving the list actually shown does go through.
         let approved = second.removal_approval.clone().unwrap();
-        let third =
-            reimport_local_skill_internal(&repo.store, "skill-1", Some(&approved)).unwrap();
+        let third = reimport_local_skill_internal(&repo.store, "skill-1", Some(&approved)).unwrap();
         assert!(third.pending_removals.is_empty());
-        assert!(!central.join("mine.txt").exists(), "the approved removal applies");
+        assert!(
+            !central.join("mine.txt").exists(),
+            "the approved removal applies"
+        );
     }
 
     fn write_skill_at(root: &Path, rel: &str) -> PathBuf {
@@ -4257,7 +4263,11 @@ mod tests {
     }
 
     /// A head that resolved, followed by a failed subtree comparison (#582).
-    fn prefetch_comparison_error(url: &str, revision: &str, reason: &str) -> Option<PrefetchedRemote> {
+    fn prefetch_comparison_error(
+        url: &str,
+        revision: &str,
+        reason: &str,
+    ) -> Option<PrefetchedRemote> {
         Some(PrefetchedRemote {
             comparison_error: Some(reason.to_string()),
             ..prefetch(url, revision).unwrap()
@@ -4648,8 +4658,7 @@ mod tests {
         let repo = tmp.path().join("repo");
         fs::create_dir_all(&repo).unwrap();
 
-        let err =
-            resolve_skill_dir(&repo, Some(outside.to_str().unwrap()), None).unwrap_err();
+        let err = resolve_skill_dir(&repo, Some(outside.to_str().unwrap()), None).unwrap_err();
         assert!(
             err.message.contains("outside the repository"),
             "{}",
@@ -4799,14 +4808,18 @@ mod tests {
         let v2 = site_skill_source("---\nname: lark-im\n---\nv2\n");
         let respelled = "https://www.skills.sh/site/open.feishu.cn/lark-im";
         let (again, _) =
-            install_site_skill_dir(&repo.store, respelled, v2.path(), None, "r", None, None).unwrap();
+            install_site_skill_dir(&repo.store, respelled, v2.path(), None, "r", None, None)
+                .unwrap();
         assert_eq!(again, id);
-        assert!(fs::read_to_string(installed.central_path.join("SKILL.md")).unwrap().ends_with("v2\n"));
+        assert!(fs::read_to_string(installed.central_path.join("SKILL.md"))
+            .unwrap()
+            .ends_with("v2\n"));
         assert!(!central_repo::skills_dir().join("lark-im-2").exists());
 
         let larksuite = "https://skills.sh/site/open.larksuite.com/lark-im";
         let (other, other_result) =
-            install_site_skill_dir(&repo.store, larksuite, v2.path(), None, "r", None, None).unwrap();
+            install_site_skill_dir(&repo.store, larksuite, v2.path(), None, "r", None, None)
+                .unwrap();
         assert_ne!(other, id);
         assert_eq!(other_result.name, "lark-im-2");
         let original = repo.store.get_skill_by_id(&id).unwrap().unwrap();

@@ -54,4 +54,3 @@ pub async fn search_skillssh(
     })
     .await?
 }
-
